@@ -7,7 +7,7 @@ from typing import Any, Dict
 # Use the new Ergast API URL
 ERGAST_API = os.getenv("ERGAST_API", "https://api.jolpi.ca/ergast/f1")
 
-app = FastAPI(title="Formula-Uno API", version="0.2.0")
+app = FastAPI(title="Formula-Uno API", version="0.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -31,22 +31,28 @@ async def fetch_from_ergast(url: str) -> Dict[str, Any]:
     except httpx.RequestError as exc:
         raise HTTPException(status_code=502, detail=f"Upstream request error: {exc}")
 
-@app.get("/api/drivers/current")
-async def get_current_drivers():
-    data = await fetch_from_ergast("current/drivers.json")
+@app.get("/api/drivers/{season}")
+async def get_drivers(season: str):
+    data = await fetch_from_ergast(f"{season}/drivers.json")
     drivers = data.get("MRData", {}).get("DriverTable", {}).get("Drivers", [])
     return {"drivers": drivers}
 
-@app.get("/api/standings/current")
-async def get_current_standings():
-    data = await fetch_from_ergast("current/driverStandings.json")
+@app.get("/api/standings/{season}")
+async def get_standings(season: str):
+    data = await fetch_from_ergast(f"{season}/driverStandings.json")
     lists = data.get("MRData", {}).get("StandingsTable", {}).get("StandingsLists", [])
     standings = lists[0].get("DriverStandings", []) if lists else []
     return {"standings": standings}
 
-@app.get("/api/results/current")
-async def get_current_results():
-    data = await fetch_from_ergast("current/results.json?limit=2000")
+@app.get("/api/results/{season}")
+async def get_results(season: str):
+    data = await fetch_from_ergast(f"{season}/results.json?limit=2000")
+    races = data.get("MRData", {}).get("RaceTable", {}).get("Races", [])
+    return {"races": races}
+
+@app.get("/api/qualifying/{season}")
+async def get_qualifying_results(season: str):
+    data = await fetch_from_ergast(f"{season}/qualifying.json?limit=2000")
     races = data.get("MRData", {}).get("RaceTable", {}).get("Races", [])
     return {"races": races}
 
