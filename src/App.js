@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import "./App.css";
 import {
   Chart as ChartJS,
@@ -28,12 +28,10 @@ ChartJS.register(
   ArcElement
 );
 
-// F1 points system for top 10 classification
 const F1_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 const CURRENT_YEAR = new Date().getFullYear();
-const MAX_POSITION = 20; // For chart scaling
+const MAX_POSITION = 20;
 
-// Comparison metric options
 const COMPARISON_METRICS = {
   points: "Points",
   position: "Race Position",
@@ -42,18 +40,18 @@ const COMPARISON_METRICS = {
 
 function App() {
   const [year, setYear] = useState(String(CURRENT_YEAR));
-  const [drivers, setDrivers] = useState([]); // from API
-  const [selectedDrivers, setSelectedDrivers] = useState(["", ""]); // store driverId
+  const [drivers, setDrivers] = useState([]);
+  const [selectedDrivers, setSelectedDrivers] = useState(["", ""]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("comparison");
   const [standings, setStandings] = useState([]);
   const [apiError, setApiError] = useState("");
-  const [results, setResults] = useState([]); // season results per race
-  const [qualifying, setQualifying] = useState([]); // season qualifying results
+  const [results, setResults] = useState([]);
+  const [qualifying, setQualifying] = useState([]);
   const [driverCodeInputs, setDriverCodeInputs] = useState(["", ""]);
   const [comparisonMetric, setComparisonMetric] = useState("points");
 
-  const fetchDataForYear = async (season) => {
+  const fetchDataForYear = useCallback(async (season) => {
     setIsLoading(true);
     setApiError("");
     try {
@@ -81,13 +79,12 @@ function App() {
       const qualiData = await qualiRes.json();
       setQualifying(qualiData.races || []);
 
-      if (driverList.length >= 2) {
-        setSelectedDrivers([driverList[0].driverId, driverList[1].driverId]);
-        setDriverCodeInputs([driverList[0].code || "", driverList[1].code || ""]);
-      } else {
-        setSelectedDrivers(["", ""]);
-        setDriverCodeInputs(["", ""]);
-      }
+      const newSelectedDrivers = driverCodeInputs.map(code => {
+        const match = driverList.find(d => (d.code || "").toUpperCase() === code.toUpperCase());
+        return match ? match.driverId : "";
+      });
+      setSelectedDrivers(newSelectedDrivers);
+
     } catch (err) {
       setApiError(err.message || "Failed to fetch data for the selected year.");
       setDrivers([]);
@@ -96,11 +93,11 @@ function App() {
       setQualifying([]);
     }
     setIsLoading(false);
-  };
+  }, [driverCodeInputs]);
 
   useEffect(() => {
     fetchDataForYear(year);
-  }, [year]);
+  }, [year, fetchDataForYear]);
 
   const handleDriverCodeChange = (index, codeValue) => {
     const value = (codeValue || "").toUpperCase();
@@ -114,13 +111,8 @@ function App() {
     setSelectedDrivers(nextSelected);
   };
 
-  const handleSubmit = (event) => {
-    event.preventDefault();
-    fetchDataForYear(year);
-  };
-
   const getComparisonLineData = () => {
-    if (!selectedDrivers[0] || !selectedDrivers[1]) {
+    if (!selectedDrivers[0] || !selectedDrivers[1] || results.length === 0) {
       return { labels: [], datasets: [] };
     }
 
@@ -129,39 +121,30 @@ function App() {
       return d ? `${d.givenName} ${d.familyName}` : id;
     };
 
-    let labels = [];
-    let dataA = [];
-    let dataB = [];
+    const labels = results.map(race => race.raceName || `Round ${race.round}`);
+    const dataA = [];
+    const dataB = [];
 
-    if (comparisonMetric === "points") {
-      results.forEach((race) => {
-        labels.push(race.raceName || `Round ${race.round}`);
-        const resA = (race.Results || []).find(r => r.Driver?.driverId === selectedDrivers[0]);
+    for (const race of results) {
+      let resA, resB;
+      if (comparisonMetric === 'quali') {
+        const qualiRace = qualifying.find(q => q.round === race.round);
+        resA = (qualiRace?.QualifyingResults || []).find(r => r.Driver?.driverId === selectedDrivers[0]);
+        resB = (qualiRace?.QualifyingResults || []).find(r => r.Driver?.driverId === selectedDrivers[1]);
+      } else {
+        resA = (race.Results || []).find(r => r.Driver?.driverId === selectedDrivers[0]);
+        resB = (race.Results || []).find(r => r.Driver?.driverId === selectedDrivers[1]);
+      }
+
+      if (comparisonMetric === "points") {
         const posA = resA ? Number(resA.position) : 0;
         dataA.push(posA > 0 && posA <= 10 ? F1_POINTS[posA - 1] : 0);
-
-        const resB = (race.Results || []).find(r => r.Driver?.driverId === selectedDrivers[1]);
         const posB = resB ? Number(resB.position) : 0;
         dataB.push(posB > 0 && posB <= 10 ? F1_POINTS[posB - 1] : 0);
-      });
-    } else if (comparisonMetric === "position") {
-      results.forEach((race) => {
-        labels.push(race.raceName || `Round ${race.round}`);
-        const resA = (race.Results || []).find(r => r.Driver?.driverId === selectedDrivers[0]);
+      } else {
         dataA.push(resA ? Number(resA.position) : null);
-
-        const resB = (race.Results || []).find(r => r.Driver?.driverId === selectedDrivers[1]);
         dataB.push(resB ? Number(resB.position) : null);
-      });
-    } else if (comparisonMetric === "quali") {
-      qualifying.forEach((race) => {
-        labels.push(race.raceName || `Round ${race.round}`);
-        const resA = (race.QualifyingResults || []).find(r => r.Driver?.driverId === selectedDrivers[0]);
-        dataA.push(resA ? Number(resA.position) : null);
-
-        const resB = (race.QualifyingResults || []).find(r => r.Driver?.driverId === selectedDrivers[1]);
-        dataB.push(resB ? Number(resB.position) : null);
-      });
+      }
     }
 
     return {
@@ -208,9 +191,9 @@ function App() {
     },
   };
 
-  const renderChart = () => {
-    return <Line options={chartOptions} data={getComparisonLineData()} />;
-  };
+  const smallChartOptions = { ...chartOptions, scales: { y: { beginAtZero: true, reverse: false } }, plugins: { ...chartOptions.plugins, title: {display: false} } };
+
+  const renderChart = () => <Line options={chartOptions} data={getComparisonLineData()} />;
 
   const getStandingsPointsChart = () => {
     if (!standings.length) return null;
@@ -220,7 +203,7 @@ function App() {
     return (
       <div className="chart-card">
         <h3>Points (Top 10) - {year}</h3>
-        <Bar data={{ labels, datasets: [{ label: "Points", data, backgroundColor: "#11182720", borderColor: "#111827" }] }} options={{ ...chartOptions, plugins: { ...chartOptions.plugins, title: { display: false } } }} />
+        <Bar data={{ labels, datasets: [{ label: "Points", data, backgroundColor: "#11182720", borderColor: "#111827" }] }} options={smallChartOptions} />
       </div>
     );
   };
@@ -233,7 +216,7 @@ function App() {
     return (
       <div className="chart-card">
         <h3>Wins (Top 10) - {year}</h3>
-        <Bar data={{ labels, datasets: [{ label: "Wins", data, backgroundColor: "#2563eb20", borderColor: "#2563eb" }] }} options={{ ...chartOptions, plugins: { ...chartOptions.plugins, title: { display: false } } }} />
+        <Bar data={{ labels, datasets: [{ label: "Wins", data, backgroundColor: "#2563eb20", borderColor: "#2563eb" }] }} options={smallChartOptions} />
       </div>
     );
   };
@@ -242,7 +225,6 @@ function App() {
     if (!standings.length) return null;
     const top = standings.slice(0, 10);
     const labels = top.map((s) => `${s.Driver.code || s.Driver.familyName}`);
-    // Ergast API does not provide podiums count directly in standings. We can calculate it from results.
     const podiums = top.map(s => {
       return results.reduce((count, race) => {
         const res = (race.Results || []).find(r => r.Driver?.driverId === s.Driver.driverId);
@@ -255,7 +237,7 @@ function App() {
     return (
       <div className="chart-card">
         <h3>Podiums (Top 10) - {year}</h3>
-        <Bar data={{ labels, datasets: [{ label: "Podiums", data: podiums, backgroundColor: "#10b98120", borderColor: "#10b981" }] }} options={{ ...chartOptions, plugins: { ...chartOptions.plugins, title: { display: false } } }} />
+        <Bar data={{ labels, datasets: [{ label: "Podiums", data: podiums, backgroundColor: "#10b98120", borderColor: "#10b981" }] }} options={smallChartOptions} />
       </div>
     );
   };
@@ -292,7 +274,7 @@ function App() {
       <div className="container">
         <div className="left-panel">
           <h2 className="panel-title">Driver Selection</h2>
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={(e) => e.preventDefault()}>
             <div className="form-group">
               <label htmlFor="driver1">Driver 1 Code (e.g., HAM)</label>
               <input id="driver1" type="text" placeholder="HAM" value={driverCodeInputs[0]} onChange={(e) => handleDriverCodeChange(0, e.target.value)} />
@@ -325,10 +307,6 @@ function App() {
                 ))}
               </div>
             </div>
-
-            <button type="submit" disabled={isLoading}>
-              {isLoading ? "Analyzing..." : "Analyze Drivers"}
-            </button>
           </form>
         </div>
 
