@@ -74,6 +74,12 @@ async def get_pitstops(season: int, round_id: int):
         raise HTTPException(status_code=404, detail="Pitstops not found")
     return {"pitstops": stops}
 
+@app.get("/api/schedule/{season}")
+async def get_schedule(season: str):
+    data = await fetch_from_ergast(f"{season}.json?limit=2000")
+    races = data.get("MRData", {}).get("RaceTable", {}).get("Races", [])
+    return {"races": races}
+
 @app.get("/api/status")
 async def status():
     return {"ok": True}

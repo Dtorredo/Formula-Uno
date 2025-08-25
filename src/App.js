@@ -48,6 +48,7 @@ function App() {
   const [apiError, setApiError] = useState("");
   const [results, setResults] = useState([]);
   const [qualifying, setQualifying] = useState([]);
+  const [schedule, setSchedule] = useState([]);
   const [driverCodeInputs, setDriverCodeInputs] = useState(["", ""]);
   const [comparisonMetric, setComparisonMetric] = useState("points");
 
@@ -55,11 +56,12 @@ function App() {
     setIsLoading(true);
     setApiError("");
     try {
-      const [driversRes, standingsRes, resultsRes, qualiRes] = await Promise.all([
+      const [driversRes, standingsRes, resultsRes, qualiRes, scheduleRes] = await Promise.all([
         fetch(`/api/drivers/${season}`),
         fetch(`/api/standings/${season}`),
         fetch(`/api/results/${season}`),
         fetch(`/api/qualifying/${season}`),
+        fetch(`/api/schedule/${season}`),
       ]);
 
       if (!driversRes.ok) throw new Error(`API error (drivers): ${driversRes.status}`);
@@ -79,6 +81,10 @@ function App() {
       const qualiData = await qualiRes.json();
       setQualifying(qualiData.races || []);
 
+      if (!scheduleRes.ok) throw new Error(`API error (schedule): ${scheduleRes.status}`);
+      const scheduleData = await scheduleRes.json();
+      setSchedule(scheduleData.races || []);
+
       const newSelectedDrivers = driverCodeInputs.map(code => {
         const match = driverList.find(d => (d.code || "").toUpperCase() === code.toUpperCase());
         return match ? match.driverId : "";
@@ -91,6 +97,7 @@ function App() {
       setStandings([]);
       setResults([]);
       setQualifying([]);
+      setSchedule([]);
     }
     setIsLoading(false);
   }, [driverCodeInputs]);
@@ -112,7 +119,7 @@ function App() {
   };
 
   const getComparisonLineData = () => {
-    if (!selectedDrivers[0] || !selectedDrivers[1] || results.length === 0) {
+    if (!selectedDrivers[0] || !selectedDrivers[1] || schedule.length === 0) {
       return { labels: [], datasets: [] };
     }
 
@@ -121,19 +128,20 @@ function App() {
       return d ? `${d.givenName} ${d.familyName}` : id;
     };
 
-    const labels = results.map(race => race.raceName || `Round ${race.round}`);
+    const labels = schedule.map(race => race.raceName || `Round ${race.round}`);
     const dataA = [];
     const dataB = [];
 
-    for (const race of results) {
+    for (const race of schedule) {
       let resA, resB;
       if (comparisonMetric === 'quali') {
         const qualiRace = qualifying.find(q => q.round === race.round);
         resA = (qualiRace?.QualifyingResults || []).find(r => r.Driver?.driverId === selectedDrivers[0]);
         resB = (qualiRace?.QualifyingResults || []).find(r => r.Driver?.driverId === selectedDrivers[1]);
       } else {
-        resA = (race.Results || []).find(r => r.Driver?.driverId === selectedDrivers[0]);
-        resB = (race.Results || []).find(r => r.Driver?.driverId === selectedDrivers[1]);
+        const resultRace = results.find(r => r.round === race.round);
+        resA = (resultRace?.Results || []).find(r => r.Driver?.driverId === selectedDrivers[0]);
+        resB = (resultRace?.Results || []).find(r => r.Driver?.driverId === selectedDrivers[1]);
       }
 
       if (comparisonMetric === "points") {
