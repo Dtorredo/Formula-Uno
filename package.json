@@ -19,7 +19,7 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "api": "uvicorn server.main:app --reload --port 8001"
+    "api": "uvicorn server.main:app --reload --port 8000"
   },
   "eslintConfig": {
     "extends": [
