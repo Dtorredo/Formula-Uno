@@ -91,13 +91,6 @@ function App() {
         setQualifying(q.races || []);
         setSchedule(sch.races || []);
 
-        // Auto-select first two drivers if none chosen
-        if (driverCodeInputs.every((c) => !c) && driverList.length >= 2) {
-          const d1 = driverList[0].driverId;
-          const d2 = driverList[1].driverId;
-          setDriverCodeInputs([d1, d2]);
-          setSelectedDrivers([d1, d2]);
-        }
       } catch (err) {
         setApiError(err.message || "Failed to load season data.");
         setDrivers([]);
@@ -111,7 +104,7 @@ function App() {
 
     if (debouncedYear && debouncedYear.length === 4)
       fetchDataForYear(debouncedYear);
-  }, [debouncedYear]);
+  }, [debouncedYear, setIsLoading, setApiError, setDrivers, setStandings, setResults, setQualifying, setSchedule]);
 
   // Driver lookup by ID ---------------------------------------------------
   const handleDriverCodeChange = (index, codeValue) => {
