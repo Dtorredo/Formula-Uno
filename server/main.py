@@ -1,8 +1,10 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Path
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import httpx
 import os
 from typing import Any, Dict
+import asyncio
 
 # Use the new Ergast API URL
 ERGAST_API = os.getenv("ERGAST_API", "https://api.jolpi.ca/ergast/f1")
@@ -20,44 +22,55 @@ app.add_middleware(
 # Shared httpx client
 client = httpx.AsyncClient(timeout=20.0)
 
+# In-memory cache
+cache = {}
+
 async def fetch_from_ergast(url: str) -> Dict[str, Any]:
-    """Fetches JSON data from the Ergast API, with error handling."""
+    """Fetches JSON data from the Ergast API, with error handling and caching."""
+    if url in cache:
+        return cache[url]
+
     try:
+        await asyncio.sleep(0.2)
         res = await client.get(f"{ERGAST_API}/{url}", headers={"Accept": "application/json"})
         res.raise_for_status()
-        return res.json()
+        data = res.json()
+        cache[url] = data
+        return data
     except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 502:
+            return JSONResponse(content={"error": "Ergast API is unavailable"}, status_code=502)
         raise HTTPException(status_code=exc.response.status_code, detail=f"Error from Ergast API: {exc}")
     except httpx.RequestError as exc:
         raise HTTPException(status_code=502, detail=f"Upstream request error: {exc}")
 
 @app.get("/api/drivers/{season}")
-async def get_drivers(season: str):
+async def get_drivers(season: str = Path(..., regex=r"^\d{4}$")):
     data = await fetch_from_ergast(f"{season}/drivers.json")
     drivers = data.get("MRData", {}).get("DriverTable", {}).get("Drivers", [])
     return {"drivers": drivers}
 
 @app.get("/api/standings/{season}")
-async def get_standings(season: str):
+async def get_standings(season: str = Path(..., regex=r"^\d{4}$")):
     data = await fetch_from_ergast(f"{season}/driverStandings.json")
     lists = data.get("MRData", {}).get("StandingsTable", {}).get("StandingsLists", [])
     standings = lists[0].get("DriverStandings", []) if lists else []
     return {"standings": standings}
 
 @app.get("/api/results/{season}")
-async def get_results(season: str):
+async def get_results(season: str = Path(..., regex=r"^\d{4}$")):
     data = await fetch_from_ergast(f"{season}/results.json?limit=2000")
     races = data.get("MRData", {}).get("RaceTable", {}).get("Races", [])
     return {"races": races}
 
 @app.get("/api/qualifying/{season}")
-async def get_qualifying_results(season: str):
+async def get_qualifying_results(season: str = Path(..., regex=r"^\d{4}$")):
     data = await fetch_from_ergast(f"{season}/qualifying.json?limit=2000")
     races = data.get("MRData", {}).get("RaceTable", {}).get("Races", [])
     return {"races": races}
 
 @app.get("/api/laps/{season}/{round_id}")
-async def get_lap_times(season: int, round_id: int):
+async def get_lap_times(season: int = Path(..., ge=1950), round_id: int = Path(..., ge=1)):
     data = await fetch_from_ergast(f"{season}/{round_id}/laps.json?limit=2000")
     try:
         laps = data["MRData"]["RaceTable"]["Races"][0].get("Laps", [])
@@ -66,7 +79,7 @@ async def get_lap_times(season: int, round_id: int):
     return {"laps": laps}
 
 @app.get("/api/pitstops/{season}/{round_id}")
-async def get_pitstops(season: int, round_id: int):
+async def get_pitstops(season: int = Path(..., ge=1950), round_id: int = Path(..., ge=1)):
     data = await fetch_from_ergast(f"{season}/{round_id}/pitstops.json?limit=2000")
     try:
         stops = data["MRData"]["RaceTable"]["Races"][0].get("PitStops", [])
@@ -75,7 +88,7 @@ async def get_pitstops(season: int, round_id: int):
     return {"pitstops": stops}
 
 @app.get("/api/schedule/{season}")
-async def get_schedule(season: str):
+async def get_schedule(season: str = Path(..., regex=r"^\d{4}$")):
     data = await fetch_from_ergast(f"{season}.json?limit=2000")
     races = data.get("MRData", {}).get("RaceTable", {}).get("Races", [])
     return {"races": races}

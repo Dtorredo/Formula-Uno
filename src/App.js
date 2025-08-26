@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import "./App.css";
 import {
   Chart as ChartJS,
@@ -40,6 +40,7 @@ const COMPARISON_METRICS = {
 
 function App() {
   const [year, setYear] = useState(String(CURRENT_YEAR));
+  const [debouncedYear, setDebouncedYear] = useState(year);
   const [drivers, setDrivers] = useState([]);
   const [selectedDrivers, setSelectedDrivers] = useState(["", ""]);
   const [isLoading, setIsLoading] = useState(false);
@@ -52,59 +53,71 @@ function App() {
   const [driverCodeInputs, setDriverCodeInputs] = useState(["", ""]);
   const [comparisonMetric, setComparisonMetric] = useState("points");
 
-  const fetchDataForYear = useCallback(async (season) => {
-    setIsLoading(true);
-    setApiError("");
-    try {
-      const [driversRes, standingsRes, resultsRes, qualiRes, scheduleRes] = await Promise.all([
-        fetch(`/api/drivers/${season}`),
-        fetch(`/api/standings/${season}`),
-        fetch(`/api/results/${season}`),
-        fetch(`/api/qualifying/${season}`),
-        fetch(`/api/schedule/${season}`),
-      ]);
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedYear(year);
+    }, 500);
 
-      if (!driversRes.ok) throw new Error(`API error (drivers): ${driversRes.status}`);
-      const driversData = await driversRes.json();
-      const driverList = driversData.drivers || [];
-      setDrivers(driverList);
-
-      if (!standingsRes.ok) throw new Error(`API error (standings): ${standingsRes.status}`);
-      const standingsData = await standingsRes.json();
-      setStandings(standingsData.standings || []);
-
-      if (!resultsRes.ok) throw new Error(`API error (results): ${resultsRes.status}`);
-      const resultsData = await resultsRes.json();
-      setResults(resultsData.races || []);
-
-      if (!qualiRes.ok) throw new Error(`API error (qualifying): ${qualiRes.status}`);
-      const qualiData = await qualiRes.json();
-      setQualifying(qualiData.races || []);
-
-      if (!scheduleRes.ok) throw new Error(`API error (schedule): ${scheduleRes.status}`);
-      const scheduleData = await scheduleRes.json();
-      setSchedule(scheduleData.races || []);
-
-      const newSelectedDrivers = driverCodeInputs.map(code => {
-        const match = driverList.find(d => (d.code || "").toUpperCase() === code.toUpperCase());
-        return match ? match.driverId : "";
-      });
-      setSelectedDrivers(newSelectedDrivers);
-
-    } catch (err) {
-      setApiError(err.message || "Failed to fetch data for the selected year.");
-      setDrivers([]);
-      setStandings([]);
-      setResults([]);
-      setQualifying([]);
-      setSchedule([]);
-    }
-    setIsLoading(false);
-  }, [driverCodeInputs]);
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [year]);
 
   useEffect(() => {
-    fetchDataForYear(year);
-  }, [year, fetchDataForYear]);
+    const fetchDataForYear = async (season) => {
+      setIsLoading(true);
+      setApiError("");
+      try {
+        const [driversRes, standingsRes, resultsRes, qualiRes, scheduleRes] = await Promise.all([
+          fetch(`/api/drivers/${season}`),
+          fetch(`/api/standings/${season}`),
+          fetch(`/api/results/${season}`),
+          fetch(`/api/qualifying/${season}`),
+          fetch(`/api/schedule/${season}`),
+        ]);
+
+        if (!driversRes.ok) throw new Error(`API error (drivers): ${driversRes.status}`);
+        const driversData = await driversRes.json();
+        const driverList = driversData.drivers || [];
+        setDrivers(driverList);
+
+        if (!standingsRes.ok) throw new Error(`API error (standings): ${standingsRes.status}`);
+        const standingsData = await standingsRes.json();
+        setStandings(standingsData.standings || []);
+
+        if (!resultsRes.ok) throw new Error(`API error (results): ${resultsRes.status}`);
+        const resultsData = await resultsRes.json();
+        setResults(resultsData.races || []);
+
+        if (!qualiRes.ok) throw new Error(`API error (qualifying): ${qualiRes.status}`);
+        const qualiData = await qualiRes.json();
+        setQualifying(qualiData.races || []);
+
+        if (!scheduleRes.ok) throw new Error(`API error (schedule): ${scheduleRes.status}`);
+        const scheduleData = await scheduleRes.json();
+        setSchedule(scheduleData.races || []);
+
+        const newSelectedDrivers = driverCodeInputs.map(code => {
+          const match = driverList.find(d => (d.code || "").toUpperCase() === code.toUpperCase());
+          return match ? match.driverId : "";
+        });
+        setSelectedDrivers(newSelectedDrivers);
+
+      } catch (err) {
+        setApiError(err.message || "Failed to fetch data for the selected year.");
+        setDrivers([]);
+        setStandings([]);
+        setResults([]);
+        setQualifying([]);
+        setSchedule([]);
+      }
+      setIsLoading(false);
+    };
+
+    if (debouncedYear && debouncedYear.length === 4) {
+      fetchDataForYear(debouncedYear);
+    }
+  }, [debouncedYear, driverCodeInputs, setIsLoading, setApiError, setDrivers, setStandings, setResults, setQualifying, setSchedule, setSelectedDrivers]);
 
   const handleDriverCodeChange = (index, codeValue) => {
     const value = (codeValue || "").toUpperCase();
@@ -327,7 +340,9 @@ function App() {
           <div className="tab-content">
             {activeTab === "comparison" && (
               <>
-                <div className="chart-container">{renderChart()}</div>
+                <div className="chart-container">
+                  {isLoading ? <div className="loading-indicator">Loading...</div> : renderChart()}
+                </div>
                 <div className="chart-grid">
                   {getStandingsPointsChart()}
                   {getStandingsWinsChart()}

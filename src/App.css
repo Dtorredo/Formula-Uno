@@ -348,6 +348,15 @@ button:disabled {
   margin-top: 1rem;
 }
 
+.loading-indicator {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  font-size: 1.2rem;
+  color: #6b7280;
+}
+
 /* Responsive Design */
 @media (max-width: 1200px) {
   .container {
