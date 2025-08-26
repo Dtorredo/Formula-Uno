@@ -65,14 +65,11 @@ function App() {
       setIsLoading(true);
       setApiError("");
       try {
-        const [driversRes, standingsRes, resultsRes, qualiRes, scheduleRes] =
-          await Promise.all([
-            fetch(`/api/drivers/${season}`),
-            fetch(`/api/standings/${season}`),
-            fetch(`/api/results/${season}`),
-            fetch(`/api/qualifying/${season}`),
-            fetch(`/api/schedule/${season}`),
-          ]);
+        const driversRes = await fetch(`/api/drivers/${season}`);
+        const standingsRes = await fetch(`/api/standings/${season}`);
+        const resultsRes = await fetch(`/api/results/${season}`);
+        const qualiRes = await fetch(`/api/qualifying/${season}`);
+        const scheduleRes = await fetch(`/api/schedule/${season}`);
 
         const throwIfBad = (res, label) => {
           if (!res.ok) throw new Error(`API error ${label}: ${res.status}`);
