@@ -1,14 +1,16 @@
 import fastf1
 import fastf1.ergast
 import pandas as pd
+import numpy as np
 from fastapi import FastAPI, HTTPException, Path
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 import os
 import json
 from datetime import datetime
 
 # --- Setup ------------------------------------------------------------------
-app = FastAPI(title="Formula-Uno API", version="1.0.0")
+app = FastAPI(title="Formula-Uno API", version="1.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,30 +19,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Helper for NumPy JSON Serialization ------------------------------------
+def numpy_safe_converter(obj):
+    """ Default JSON serializer for objects containing numpy types """
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, pd.Timestamp):
+        return obj.isoformat()
+    elif isinstance(obj, pd.Timedelta):
+        return str(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+def create_json_response(content: dict) -> Response:
+    """Creates a FastAPI Response object with NumPy-safe JSON content."""
+    json_str = json.dumps(content, default=numpy_safe_converter)
+    return Response(content=json_str, media_type="application/json")
+
 # --- API Endpoints ----------------------------------------------------------
 @app.get("/api/schedule/{season}")
 async def get_schedule(season: int = Path(..., ge=1950, description="The year of the season")):
     try:
-        # FastF1's main module is good for schedules
         schedule = fastf1.get_event_schedule(season, include_testing=False)
         schedule_df = pd.DataFrame(schedule)
         schedule_df = schedule_df.rename(columns={"EventName": "raceName", "RoundNumber": "round"})
-        # Convert to the format the frontend expects
-        races_json_str = schedule_df.to_json(orient="records")
-        return {"races": json.loads(races_json_str)}
+        races_list = json.loads(schedule_df.to_json(orient="records"))
+        return create_json_response({"races": races_list})
     except Exception as e:
-        # Handle future seasons gracefully
         if "No data for season" in str(e):
-            return {"races": []}
+            return create_json_response({"races": []})
         raise HTTPException(status_code=500, detail=f"Error getting schedule: {e}")
 
 @app.get("/api/drivers/{season}")
 async def get_drivers(season: int = Path(..., ge=1950)):
     try:
-        # Use the Ergast module for consistency with other data points
         ergast = fastf1.ergast.Ergast()
         drivers = ergast.get_drivers(season=season).content
-        return {"drivers": drivers}
+        return create_json_response({"drivers": drivers})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting drivers: {e}")
 
@@ -49,7 +67,7 @@ async def get_standings(season: int = Path(..., ge=1950)):
     try:
         ergast = fastf1.ergast.Ergast()
         standings = ergast.get_driver_standings(season=season).content
-        return {"standings": standings}
+        return create_json_response({"standings": standings})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting standings: {e}")
 
@@ -58,7 +76,7 @@ async def get_results(season: int = Path(..., ge=1950)):
     try:
         ergast = fastf1.ergast.Ergast()
         races = ergast.get_race_results(season=season).content
-        return {"races": races}
+        return create_json_response({"races": races})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting results: {e}")
 
@@ -67,7 +85,7 @@ async def get_qualifying_results(season: int = Path(..., ge=1950)):
     try:
         ergast = fastf1.ergast.Ergast()
         races = ergast.get_qualifying_results(season=season).content
-        return {"races": races}
+        return create_json_response({"races": races})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting qualifying results: {e}")
 
