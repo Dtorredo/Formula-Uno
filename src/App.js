@@ -96,7 +96,10 @@ function App() {
 
         // Auto-select first two drivers if none chosen
         if (driverCodeInputs.every((c) => !c) && driverList.length >= 2) {
-          setDriverCodeInputs([driverList[0].code, driverList[1].code]);
+          const d1 = driverList[0].driverId;
+          const d2 = driverList[1].driverId;
+          setDriverCodeInputs([d1, d2]);
+          setSelectedDrivers([d1, d2]);
         }
       } catch (err) {
         setApiError(err.message || "Failed to load season data.");
@@ -113,14 +116,16 @@ function App() {
       fetchDataForYear(debouncedYear);
   }, [debouncedYear]);
 
-  // Driver lookup by code ---------------------------------------------------
+  // Driver lookup by ID ---------------------------------------------------
   const handleDriverCodeChange = (index, codeValue) => {
-    const value = (codeValue || "").toUpperCase();
+    const value = (codeValue || "").toLowerCase();
     const nextInputs = [...driverCodeInputs];
     nextInputs[index] = value;
     setDriverCodeInputs(nextInputs);
 
-    const match = drivers.find((d) => (d.code || "").toUpperCase() === value);
+    const match = drivers.find(
+      (d) => (d.driverId || "").toLowerCase() === value
+    );
     const nextSelected = [...selectedDrivers];
     nextSelected[index] = match ? match.driverId : "";
     setSelectedDrivers(nextSelected);
@@ -256,7 +261,9 @@ function App() {
 
   const getStandingsWinsChart = () => {
     if (!standings.length) return null;
-    const labels = standings.map((s) => s.Driver.code || s.Driver.familyName);
+    const labels = standings.map(
+      (s) => `${s.Driver.givenName} ${s.Driver.familyName}`
+    );
     const data = standings.map((s) => Number(s.wins));
     return (
       <div className="chart-card">
@@ -289,7 +296,7 @@ function App() {
             <span className="driver-number">#{driver.permanentNumber}</span>
           )}
           <h3>{driver ? `${driver.givenName} ${driver.familyName}` : driverId}</h3>
-          <p className="driver-team">{driver?.code || driver?.nationality}</p>
+          <p className="driver-team">{driver?.nationality}</p>
         </div>
         <div className="stats-grid">
           <div className="stat-item">
@@ -326,19 +333,19 @@ function App() {
           <h2 className="panel-title">Driver Selection</h2>
           <form onSubmit={(e) => e.preventDefault()}>
             <div className="form-group">
-              <label>Driver 1 Code</label>
+              <label>Driver 1 ID</label>
               <input
                 type="text"
-                placeholder="HAM"
+                placeholder="hamilton"
                 value={driverCodeInputs[0]}
                 onChange={(e) => handleDriverCodeChange(0, e.target.value)}
               />
             </div>
             <div className="form-group">
-              <label>Driver 2 Code</label>
+              <label>Driver 2 ID</label>
               <input
                 type="text"
-                placeholder="VER"
+                placeholder="verstappen"
                 value={driverCodeInputs[1]}
                 onChange={(e) => handleDriverCodeChange(1, e.target.value)}
               />
