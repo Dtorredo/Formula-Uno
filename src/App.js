@@ -84,12 +84,20 @@ function App() {
           throwIfBad(scheduleRes, "schedule"),
         ]);
 
-        setDrivers(d.drivers || []);
+        const driverList = d.drivers || [];
+        setDrivers(driverList);
         setStandings(s.standings || []);
         setResults(r.races || []);
         setQualifying(q.races || []);
         setSchedule(sch.races || []);
 
+        // Auto-select first two drivers if none chosen
+        if (driverCodeInputs.every((c) => !c) && driverList.length >= 2) {
+          const d1 = driverList[0].driverId;
+          const d2 = driverList[1].driverId;
+          setDriverCodeInputs([d1, d2]);
+          setSelectedDrivers([d1, d2]);
+        }
       } catch (err) {
         setApiError(err.message || "Failed to load season data.");
         setDrivers([]);
@@ -103,7 +111,7 @@ function App() {
 
     if (debouncedYear && debouncedYear.length === 4)
       fetchDataForYear(debouncedYear);
-  }, [debouncedYear, setIsLoading, setApiError, setDrivers, setStandings, setResults, setQualifying, setSchedule]);
+  }, [debouncedYear]);
 
   // Driver lookup by ID ---------------------------------------------------
   const handleDriverCodeChange = (index, codeValue) => {
@@ -113,10 +121,10 @@ function App() {
     setDriverCodeInputs(nextInputs);
 
     const match = drivers.find(
-      (d) => (d.BroadcastName || "").toLowerCase() === value
+      (d) => (d.driverId || "").toLowerCase() === value
     );
     const nextSelected = [...selectedDrivers];
-    nextSelected[index] = match ? match.BroadcastName : "";
+    nextSelected[index] = match ? match.driverId : "";
     setSelectedDrivers(nextSelected);
   };
 
@@ -127,11 +135,11 @@ function App() {
       return { labels: [], datasets: [] };
 
     const nameFor = (id) => {
-      const d = drivers.find((x) => x.BroadcastName === id);
-      return d ? d.FullName : id;
+      const d = drivers.find((x) => x.driverId === id);
+      return d ? `${d.givenName} ${d.familyName}` : id;
     };
 
-    const labels = schedule.map((r) => r.EventName || `Round ${r.RoundNumber}`);
+    const labels = schedule.map((r) => r.raceName || `Round ${r.round}`);
     const dataA = [];
     const dataB = [];
 
@@ -139,35 +147,31 @@ function App() {
       let resA, resB;
 
       if (comparisonMetric === "quali") {
-        const qRace = qualifying[race.RoundNumber - 1];
-        if (qRace) {
-            resA = qRace.find(
-                (r) => r.BroadcastName === selectedDrivers[0]
-            );
-            resB = qRace.find(
-                (r) => r.BroadcastName === selectedDrivers[1]
-            );
-        }
+        const qRace = qualifying.find((q) => q.round === race.round);
+        resA = (qRace?.QualifyingResults || []).find(
+          (r) => r.Driver?.driverId === selectedDrivers[0]
+        );
+        resB = (qRace?.QualifyingResults || []).find(
+          (r) => r.Driver?.driverId === selectedDrivers[1]
+        );
       } else {
-        const rRace = results[race.RoundNumber - 1];
-        if (rRace) {
-            resA = rRace.find(
-                (r) => r.BroadcastName === selectedDrivers[0]
-            );
-            resB = rRace.find(
-                (r) => r.BroadcastName === selectedDrivers[1]
-            );
-        }
+        const rRace = results.find((r) => r.round === race.round);
+        resA = (rRace?.Results || []).find(
+          (r) => r.Driver?.driverId === selectedDrivers[0]
+        );
+        resB = (rRace?.Results || []).find(
+          (r) => r.Driver?.driverId === selectedDrivers[1]
+        );
       }
 
       if (comparisonMetric === "points") {
-        const posA = resA ? Number(resA.Position) : 0;
+        const posA = resA ? Number(resA.position) : 0;
         dataA.push(posA >= 1 && posA <= 10 ? F1_POINTS[posA - 1] : 0);
-        const posB = resB ? Number(resB.Position) : 0;
+        const posB = resB ? Number(resB.position) : 0;
         dataB.push(posB >= 1 && posB <= 10 ? F1_POINTS[posB - 1] : 0);
       } else {
-        dataA.push(resA ? Number(resA.Position) : null);
-        dataB.push(resB ? Number(resB.Position) : null);
+        dataA.push(resA ? Number(resA.position) : null);
+        dataB.push(resB ? Number(resB.position) : null);
       }
     }
 
@@ -280,16 +284,16 @@ function App() {
   };
 
   const getDriverStats = (driverId) => {
-    const driver = drivers.find((d) => d.BroadcastName === driverId);
-    const standing = standings.find((s) => s.Driver.code === driverId);
+    const driver = drivers.find((d) => d.driverId === driverId);
+    const standing = standings.find((s) => s.Driver.driverId === driverId);
     return (
       <div key={driverId} className="driver-stats">
         <div className="driver-header">
-          {driver?.DriverNumber && (
-            <span className="driver-number">#{driver.DriverNumber}</span>
+          {driver?.permanentNumber && (
+            <span className="driver-number">#{driver.permanentNumber}</span>
           )}
-          <h3>{driver ? driver.FullName : driverId}</h3>
-          <p className="driver-team">{driver?.TeamName}</p>
+          <h3>{driver ? `${driver.givenName} ${driver.familyName}` : driverId}</h3>
+          <p className="driver-team">{driver?.nationality}</p>
         </div>
         <div className="stats-grid">
           <div className="stat-item">
