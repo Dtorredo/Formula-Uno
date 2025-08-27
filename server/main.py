@@ -5,6 +5,7 @@ import numpy as np
 from fastapi import FastAPI, HTTPException, Path
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles
 import os
 import json
 from datetime import datetime
@@ -239,3 +240,7 @@ async def get_session_info(
         return create_json_response(info)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading session: {e}")
+
+# --- Static Files Mount -----------------------------------------------------
+# This must be the last route, as it's a catch-all for serving the frontend
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
