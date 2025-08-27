@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import "./App.css";
 import {
   Chart as ChartJS,
@@ -58,14 +58,11 @@ const COMPARISON_METRICS = {
 function App() {
   const [year, setYear] = useState(String(CURRENT_YEAR));
   const [debouncedYear, setDebouncedYear] = useState(year);
-  const [selectedDrivers, setSelectedDrivers] = useState(["", ""]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("comparison");
   const [apiError, setApiError] = useState("");
   const [driverCodeInputs, setDriverCodeInputs] = useState(["", ""]);
   const [comparisonMetric, setComparisonMetric] = useState("points");
-  
-  // Consolidated state for all season data to prevent race conditions
   const [seasonData, setSeasonData] = useState(null);
 
   // Debounce year input
@@ -79,11 +76,11 @@ function App() {
     setSeasonData(null);
   }, [debouncedYear]);
 
-  // Fetch everything for the chosen season
+  // --- DATA FETCHING ---
   const fetchDataForYear = async (season) => {
     setIsLoading(true);
     setApiError("");
-    setSeasonData(null); // Clear old data before fetching
+    setSeasonData(null);
     try {
       const [d, s, r, q, sch] = await Promise.all([
         fetchJson(`/api/drivers/${season}`, "drivers"),
@@ -92,7 +89,6 @@ function App() {
         fetchJson(`/api/qualifying/${season}`, "qualifying"),
         fetchJson(`/api/schedule/${season}`, "schedule"),
       ]);
-
       setSeasonData({
         drivers: d.drivers || [],
         standings: s.standings || [],
@@ -107,47 +103,42 @@ function App() {
     setIsLoading(false);
   };
 
-  // Handle driver selection and auto-selection
-  useEffect(() => {
-    if (!seasonData) {
-      if (selectedDrivers[0] || selectedDrivers[1]) {
-        setSelectedDrivers(["", ""]);
-      }
-      return;
-    }
+  // --- DRIVER SELECTION LOGIC ---
 
+  // This is now the single source of truth for the selected driver IDs.
+  // It's derived directly from inputs and available data.
+  const selectedDrivers = useMemo(() => {
+    if (!seasonData) return ["", ""];
     const norm = (s) => (s || "").toLowerCase();
-    const resolved = driverCodeInputs.map((raw) => {
+    return driverCodeInputs.map((raw) => {
       const value = norm((raw || "").trim());
       const match = seasonData.drivers.find(
         (d) => norm(d.driverId) === value || norm(d.driverCode) === value
       );
       return match ? match.driverId : "";
     });
+  }, [seasonData, driverCodeInputs]);
 
-    // Auto-select first two drivers if no drivers are selected from inputs
-    if (resolved.every(id => !id) && seasonData.drivers.length >= 2) {
-        resolved[0] = seasonData.drivers[0].driverId;
-        resolved[1] = seasonData.drivers[1].driverId;
-        // Update the input fields to reflect the auto-selection
-        if (resolved[0] !== driverCodeInputs[0] || resolved[1] !== driverCodeInputs[1]) {
-          setDriverCodeInputs([resolved[0], resolved[1]]);
-        }
+  // This effect now *only* handles auto-selecting the first two drivers
+  // when data loads and the inputs are empty.
+  useEffect(() => {
+    if (seasonData && seasonData.drivers.length >= 2 && driverCodeInputs.every((c) => !c)) {
+      setDriverCodeInputs([
+        seasonData.drivers[0].driverId,
+        seasonData.drivers[1].driverId,
+      ]);
     }
+  }, [seasonData, driverCodeInputs]);
 
-    if (resolved[0] !== selectedDrivers[0] || resolved[1] !== selectedDrivers[1]) {
-      setSelectedDrivers(resolved);
-    }
-  }, [seasonData, driverCodeInputs, selectedDrivers]);
-
-  // Handle manual input changes
+  // This handler now *only* updates the input state.
   const handleDriverCodeChange = (index, codeValue) => {
     const nextInputs = [...driverCodeInputs];
     nextInputs[index] = codeValue || "";
     setDriverCodeInputs(nextInputs);
   };
-  
-  // Chart data and options
+
+  // --- CHARTING LOGIC ---
+
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
@@ -166,7 +157,7 @@ function App() {
         reverse: comparisonMetric !== "points",
         min: comparisonMetric !== "points" ? 1 : 0,
         max: comparisonMetric === "points" ? 26 : MAX_POSITION,
-        grace: '10%', // Adds padding to top/bottom of chart
+        grace: '10%',
       },
     },
   };
@@ -182,11 +173,7 @@ function App() {
       return { labels: [], datasets: [] };
 
     const { schedule, drivers, qualifying, results } = seasonData;
-
-    const nameFor = (id) => {
-      const d = drivers.find((x) => x.driverId === id);
-      return d ? `${d.givenName} ${d.familyName}` : id;
-    };
+    const nameFor = (id) => drivers.find((x) => x.driverId === id)?.familyName || id;
 
     const labels = schedule.map((r) => r.raceName || `Round ${r.round}`);
     const dataA = [];
@@ -195,7 +182,6 @@ function App() {
     for (const race of schedule) {
       const round = Number(race.round);
       let resA, resB;
-
       if (comparisonMetric === "quali") {
         const qRound = qualifying.filter((q) => Number(q.round) === round);
         resA = qRound.find((r) => r.driverId === selectedDrivers[0]);
@@ -220,35 +206,18 @@ function App() {
     return {
       labels,
       datasets: [
-        {
-          label: nameFor(selectedDrivers[0]),
-          data: dataA,
-          borderColor: "#111827",
-          backgroundColor: "#11182710",
-          tension: 0.1,
-          spanGaps: true,
-        },
-        {
-          label: nameFor(selectedDrivers[1]),
-          data: dataB,
-          borderColor: "#2563eb",
-          backgroundColor: "#2563eb10",
-          tension: 0.1,
-          spanGaps: true,
-        },
+        { label: nameFor(selectedDrivers[0]), data: dataA, borderColor: "#111827", tension: 0.1, spanGaps: true },
+        { label: nameFor(selectedDrivers[1]), data: dataB, borderColor: "#2563eb", tension: 0.1, spanGaps: true },
       ],
     };
   };
-
-  const renderChart = () => (
-    <Line options={chartOptions} data={getComparisonLineData()} />
-  );
 
   const getOverallPointsLineData = () => {
     if (!seasonData || !selectedDrivers[0] || !selectedDrivers[1])
       return { labels: [], datasets: [] };
     
     const { schedule, results, drivers } = seasonData;
+    const nameFor = (id) => drivers.find((x) => x.driverId === id)?.familyName || id;
 
     const labels = schedule.map((r) => r.raceName || `Round ${r.round}`);
     const cumA = [];
@@ -267,79 +236,43 @@ function App() {
       cumA.push(totalA);
       cumB.push(totalB);
     }
-    const nameFor = (id) => {
-      const d = drivers.find((x) => x.driverId === id);
-      return d ? `${d.givenName} ${d.familyName}` : id;
-    };
+    
     return {
       labels,
       datasets: [
-        {
-          label: `${nameFor(selectedDrivers[0])} – Overall Points`,
-          data: cumA,
-          borderColor: "#0ea5e9",
-          backgroundColor: "#0ea5e910",
-          tension: 0.2,
-          spanGaps: true,
-        },
-        {
-          label: `${nameFor(selectedDrivers[1])} – Overall Points`,
-          data: cumB,
-          borderColor: "#f59e0b",
-          backgroundColor: "#f59e0b10",
-          tension: 0.2,
-          spanGaps: true,
-        },
+        { label: `${nameFor(selectedDrivers[0])} Points`, data: cumA, borderColor: "#0ea5e9", tension: 0.2, spanGaps: true },
+        { label: `${nameFor(selectedDrivers[1])} Points`, data: cumB, borderColor: "#f59e0b", tension: 0.2, spanGaps: true },
       ],
     };
   };
 
   const getPodiumsBarChart = () => {
     if (!seasonData) return null;
-    const { schedule, results, drivers } = seasonData;
-
+    const { results, drivers } = seasonData;
     const podiumCounts = new Map();
-    for (const race of schedule) {
-      const round = Number(race.round);
-      const rRound = results.filter((r) => Number(r.round) === round);
-      for (const res of rRound) {
-        const pos = Number(res.position);
-        if (pos >= 1 && pos <= 3) {
-          const id = res.driverId;
-          podiumCounts.set(id, (podiumCounts.get(id) || 0) + 1);
-        }
+    for (const res of results) {
+      if (Number(res.position) <= 3) {
+        podiumCounts.set(res.driverId, (podiumCounts.get(res.driverId) || 0) + 1);
       }
     }
-    const nameFor = (id) => {
-      const d = drivers.find((x) => x.driverId === id);
-      return d ? `${d.givenName} ${d.familyName}` : id;
-    };
-    const sorted = Array.from(podiumCounts.entries()).sort(
-      (a, b) => b[1] - a[1]
-    );
-    const labels = sorted.map(([id]) => nameFor(id));
-    const data = sorted.map(([, count]) => count);
+    const nameFor = (id) => drivers.find((x) => x.driverId === id)?.familyName || id;
+    const sorted = Array.from(podiumCounts.entries()).sort((a, b) => b[1] - a[1]);
+    
     return (
       <div className="chart-card">
         <h3>Podiums – {year}</h3>
         <Bar
           data={{
-            labels,
-            datasets: [
-              {
-                label: "Podiums",
-                data,
-                backgroundColor: "#10b98120",
-                borderColor: "#10b981",
-                barPercentage: 0.7,
-              },
-            ],
+            labels: sorted.map(([id]) => nameFor(id)),
+            datasets: [{
+              label: "Podiums",
+              data: sorted.map(([, count]) => count),
+              backgroundColor: "#10b98120",
+              borderColor: "#10b981",
+              barPercentage: 0.7,
+            }],
           }}
-          options={{
-            ...smallChartOptions,
-            indexAxis: "y",
-            scales: { x: { beginAtZero: true, ticks: { precision: 0 }, grace: '10%' } },
-          }}
+          options={{ ...smallChartOptions, indexAxis: "y", scales: { x: { beginAtZero: true, ticks: { precision: 0 }, grace: '10%' } } }}
         />
       </div>
     );
@@ -348,28 +281,12 @@ function App() {
   const getStandingsPointsChart = () => {
     if (!seasonData) return null;
     const { standings } = seasonData;
-    const labels = standings.map((s) =>
-      `${s.givenName || ""} ${s.familyName || ""}`.trim()
-    );
+    const labels = standings.map((s) => s.familyName || s.driverId);
     const data = standings.map((s) => Number(s.points));
     return (
       <div className="chart-card">
         <h3>Points – {year}</h3>
-        <Bar
-          data={{
-            labels,
-            datasets: [
-              {
-                label: "Points",
-                data,
-                backgroundColor: "#11182720",
-                borderColor: "#111827",
-                barPercentage: 0.7,
-              },
-            ],
-          }}
-          options={smallChartOptions}
-        />
+        <Bar data={{ labels, datasets: [{ label: "Points", data, backgroundColor: "#11182720", borderColor: "#111827", barPercentage: 0.7 }]}} options={smallChartOptions} />
       </div>
     );
   };
@@ -377,65 +294,38 @@ function App() {
   const getStandingsWinsChart = () => {
     if (!seasonData) return null;
     const { standings } = seasonData;
-    const labels = standings.map((s) =>
-      `${s.givenName || ""} ${s.familyName || ""}`.trim()
-    );
+    const labels = standings.map((s) => s.familyName || s.driverId);
     const data = standings.map((s) => Number(s.wins));
     return (
       <div className="chart-card">
         <h3>Wins – {year}</h3>
-        <Bar
-          data={{
-            labels,
-            datasets: [
-              {
-                label: "Wins",
-                data,
-                backgroundColor: "#2563eb20",
-                borderColor: "#2563eb",
-                barPercentage: 0.7,
-              },
-            ],
-          }}
-          options={smallChartOptions}
-        />
+        <Bar data={{ labels, datasets: [{ label: "Wins", data, backgroundColor: "#2563eb20", borderColor: "#2563eb", barPercentage: 0.7 }]}} options={smallChartOptions} />
       </div>
     );
   };
 
   const getDriverStats = (driverId) => {
-    if (!seasonData) return null;
+    if (!seasonData || !driverId) return null;
     const { drivers, standings } = seasonData;
     const driver = drivers.find((d) => d.driverId === driverId);
     const standing = standings.find((s) => s.driverId === driverId);
     return (
       <div key={driverId} className="driver-stats">
         <div className="driver-header">
-          {driver?.permanentNumber && (
-            <span className="driver-number">#{driver.permanentNumber}</span>
-          )}
-          <h3>
-            {driver ? `${driver.givenName} ${driver.familyName}` : driverId}
-          </h3>
+          {driver?.permanentNumber && <span className="driver-number">#{driver.permanentNumber}</span>}
+          <h3>{driver ? `${driver.givenName} ${driver.familyName}` : driverId}</h3>
           <p className="driver-team">{driver?.nationality}</p>
         </div>
         <div className="stats-grid">
-          <div className="stat-item">
-            <span className="stat-value">{standing?.points ?? "-"}</span>
-            <span className="stat-label">Points</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-value">{standing?.wins ?? "-"}</span>
-            <span className="stat-label">Wins</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-value">{standing?.position ?? "-"}</span>
-            <span className="stat-label">Standing</span>
-          </div>
+          <div className="stat-item"><span className="stat-value">{standing?.points ?? "-"}</span><span className="stat-label">Points</span></div>
+          <div className="stat-item"><span className="stat-value">{standing?.wins ?? "-"}</span><span className="stat-label">Wins</span></div>
+          <div className="stat-item"><span className="stat-value">{standing?.position ?? "-"}</span><span className="stat-label">Standing</span></div>
         </div>
       </div>
     );
   };
+
+  const renderChart = () => <Line options={chartOptions} data={getComparisonLineData()} />;
 
   return (
     <div className="app">
@@ -443,9 +333,7 @@ function App() {
         <div className="glass-card">
           <h1>🏎️ Formula One Driver Analysis</h1>
           <p>Compare drivers across the entire season</p>
-          {apiError && (
-            <p style={{ color: "#b91c1c", fontSize: "0.8rem" }}>{apiError}</p>
-          )}
+          {apiError && <p style={{ color: "#b91c1c", fontSize: "0.8rem" }}>{apiError}</p>}
         </div>
       </header>
 
@@ -455,56 +343,24 @@ function App() {
           <form onSubmit={(e) => e.preventDefault()}>
             <div className="form-group">
               <label>Driver 1 ID</label>
-              <input
-                type="text"
-                placeholder="hamilton"
-                value={driverCodeInputs[0]}
-                onChange={(e) => handleDriverCodeChange(0, e.target.value)}
-              />
+              <input type="text" placeholder="hamilton" value={driverCodeInputs[0]} onChange={(e) => handleDriverCodeChange(0, e.target.value)} />
             </div>
             <div className="form-group">
               <label>Driver 2 ID</label>
-              <input
-                type="text"
-                placeholder="verstappen"
-                value={driverCodeInputs[1]}
-                onChange={(e) => handleDriverCodeChange(1, e.target.value)}
-              />
+              <input type="text" placeholder="verstappen" value={driverCodeInputs[1]} onChange={(e) => handleDriverCodeChange(1, e.target.value)} />
             </div>
             <div className="form-group">
               <label>Year</label>
-              <input
-                type="number"
-                placeholder="YYYY"
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
-              />
+              <input type="number" placeholder="YYYY" value={year} onChange={(e) => setYear(e.target.value)} />
             </div>
             <div className="form-group">
               <label>Metric</label>
-              <select
-                value={comparisonMetric}
-                onChange={(e) => setComparisonMetric(e.target.value)}
-              >
-                {Object.entries(COMPARISON_METRICS).map(([k, v]) => (
-                  <option key={k} value={k}>
-                    {v}
-                  </option>
-                ))}
+              <select value={comparisonMetric} onChange={(e) => setComparisonMetric(e.target.value)}>
+                {Object.entries(COMPARISON_METRICS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </div>
             <div className="form-group">
-              <button
-                type="button"
-                onClick={() =>
-                  debouncedYear &&
-                  debouncedYear.length === 4 &&
-                  fetchDataForYear(debouncedYear)
-                }
-                disabled={
-                  !debouncedYear || debouncedYear.length !== 4 || isLoading
-                }
-              >
+              <button type="button" onClick={() => debouncedYear?.length === 4 && fetchDataForYear(debouncedYear)} disabled={!debouncedYear || debouncedYear.length !== 4 || isLoading}>
                 {isLoading ? "Analyzing…" : "Analyze Season"}
               </button>
             </div>
@@ -513,22 +369,8 @@ function App() {
 
         <div className="right-panel">
           <div className="tab-navigation">
-            <button
-              className={`tab-button ${
-                activeTab === "comparison" ? "active" : ""
-              }`}
-              onClick={() => setActiveTab("comparison")}
-            >
-              Performance Comparison
-            </button>
-            <button
-              className={`tab-button ${
-                activeTab === "statistics" ? "active" : ""
-              }`}
-              onClick={() => setActiveTab("statistics")}
-            >
-              Driver Statistics
-            </button>
+            <button className={`tab-button ${activeTab === "comparison" ? "active" : ""}`} onClick={() => setActiveTab("comparison")}>Performance Comparison</button>
+            <button className={`tab-button ${activeTab === "statistics" ? "active" : ""}`} onClick={() => setActiveTab("statistics")}>Driver Statistics</button>
           </div>
 
           <div className="tab-content">
@@ -544,33 +386,14 @@ function App() {
                   {seasonData && getStandingsWinsChart()}
                   {seasonData && getPodiumsBarChart()}
                 </div>
-                <div
-                  className="chart-container small"
-                  style={{ marginTop: 16 }}
-                >
-                  {seasonData && (
-                    <Line
-                      options={{
-                        ...chartOptions,
-                        plugins: {
-                          ...chartOptions.plugins,
-                          title: {
-                            display: true,
-                            text: `Overall Points – ${year}`,
-                          },
-                        },
-                        scales: { y: { beginAtZero: true, grace: '10%' } },
-                      }}
-                      data={getOverallPointsLineData()}
-                    />
-                  )}
+                <div className="chart-container small" style={{ marginTop: 16 }}>
+                  {seasonData && <Line options={{ ...chartOptions, plugins: { ...chartOptions.plugins, title: { display: true, text: `Overall Points – ${year}` } }, scales: { y: { beginAtZero: true, grace: '10%' } } }} data={getOverallPointsLineData()} />}
                 </div>
               </>
             )}
-
             {activeTab === "statistics" && (
               <div className="statistics-grid">
-                {selectedDrivers.map((id) => id && getDriverStats(id))}
+                {selectedDrivers.map((id) => getDriverStats(id))}
               </div>
             )}
           </div>
