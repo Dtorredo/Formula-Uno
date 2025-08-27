@@ -1,70 +1,90 @@
-# Getting Started with Create React App
+# Formula Uno - Driver Performance Analysis
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This web application provides a platform to analyze and visualize Formula 1 driver performance data across different seasons. You can compare two drivers based on various metrics, view season standings, and explore race results.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+*   **Driver Comparison:** Select two drivers and a season to compare their performance in terms of points, race positions, and qualifying results.
+*   **Data Visualization:** View interactive charts that display the chosen comparison metric over the course of the season.
+*   **Season Statistics:** See overall driver standings, including points, wins, and podium finishes for the selected season.
+*   **Responsive Design:** The application is designed to work on different screen sizes.
 
-### `npm start`
+## Tech Stack
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+*   **Frontend:**
+    *   React
+    *   Chart.js for data visualization
+*   **Backend:**
+    *   Python
+    *   FastAPI for the REST API
+    *   FastF1 library for fetching Formula 1 data
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Getting Started
 
-### `npm test`
+These instructions will get you a copy of the project up and running on your local machine for development and testing purposes.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+### Prerequisites
 
-### `npm run build`
+*   Node.js and npm (or yarn)
+*   Python 3.x and pip
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### Installation
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+1.  **Clone the repository:**
+    ```sh
+    git clone https://github.com/your-username/formula-uno.git
+    cd formula-uno
+    ```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+2.  **Install frontend dependencies:**
+    ```sh
+    npm install
+    ```
 
-### `npm run eject`
+3.  **Install backend dependencies:**
+    ```sh
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
+    ```
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+### Running the Application
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+1.  **Start the backend server:**
+    Open a terminal and run the following command. The API will be available at `http://localhost:8001`.
+    ```sh
+    npm run api
+    ```
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+2.  **Start the frontend development server:**
+    Open another terminal and run the following command. The application will be available at `http://localhost:3000`.
+    ```sh
+    npm start
+    ```
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+## API Endpoints
 
-## Learn More
+The backend exposes the following endpoints:
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+*   `GET /api/schedule/{season}`: Get the race schedule for a given season.
+*   `GET /api/drivers/{season}`: Get the list of drivers for a given season.
+*   `GET /api/standings/{season}`: Get the driver standings for a given season.
+*   `GET /api/results/{season}`: Get the race results for a given season.
+*   `GET /api/qualifying/{season}`: Get the qualifying results for a given season.
+*   `GET /api/status`: Check the status of the API.
+*   `GET /api/session/{season}/{event}/{kind}`: Get information about a specific session.
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+## Project Structure
 
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+```
+/
+├── public/           # Public assets for the React app
+├── server/           # FastAPI backend
+│   └── main.py       # API endpoint definitions
+├── src/              # React application source code
+│   ├── App.js        # Main application component
+│   └── ...
+├── .fastf1-cache/    # Cache for FastF1 data
+├── package.json      # Frontend dependencies and scripts
+└── requirements.txt  # Backend Python dependencies
+```
