@@ -16,7 +16,7 @@ import {
 import { Bar, Line } from "react-chartjs-2";
 
 // Configurable API base: set REACT_APP_API_BASE in production
-const API_BASE = process.env.REACT_APP_API_BASE || ""; 
+const API_BASE = process.env.REACT_APP_API_BASE || "";
 
 async function fetchJson(path, label) {
   const res = await fetch(`${API_BASE}${path}`);
@@ -58,38 +58,32 @@ const COMPARISON_METRICS = {
 function App() {
   const [year, setYear] = useState(String(CURRENT_YEAR));
   const [debouncedYear, setDebouncedYear] = useState(year);
-  const [drivers, setDrivers] = useState([]);
   const [selectedDrivers, setSelectedDrivers] = useState(["", ""]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("comparison");
-  const [standings, setStandings] = useState([]);
   const [apiError, setApiError] = useState("");
-  const [results, setResults] = useState([]);
-  const [qualifying, setQualifying] = useState([]);
-  const [schedule, setSchedule] = useState([]);
   const [driverCodeInputs, setDriverCodeInputs] = useState(["", ""]);
   const [comparisonMetric, setComparisonMetric] = useState("points");
-  const [hasAnalyzed, setHasAnalyzed] = useState(false);
+  
+  // Consolidated state for all season data to prevent race conditions
+  const [seasonData, setSeasonData] = useState(null);
 
-  // Debounce year input ----------------------------------------------------
+  // Debounce year input
   useEffect(() => {
     const handler = setTimeout(() => setDebouncedYear(year), 500);
     return () => clearTimeout(handler);
   }, [year]);
 
-  // When year changes, clear previously analyzed season until Analyze is clicked
+  // When year changes, clear previously analyzed season
   useEffect(() => {
-    setHasAnalyzed(false);
-    setStandings([]);
-    setResults([]);
-    setQualifying([]);
-    setSchedule([]);
+    setSeasonData(null);
   }, [debouncedYear]);
 
-  // Fetch everything for the chosen season ---------------------------------
+  // Fetch everything for the chosen season
   const fetchDataForYear = async (season) => {
     setIsLoading(true);
     setApiError("");
+    setSeasonData(null); // Clear old data before fetching
     try {
       const [d, s, r, q, sch] = await Promise.all([
         fetchJson(`/api/drivers/${season}`, "drivers"),
@@ -99,36 +93,31 @@ function App() {
         fetchJson(`/api/schedule/${season}`, "schedule"),
       ]);
 
-      const driverList = d.drivers || [];
-      setDrivers(driverList);
-      setStandings(s.standings || []);
-      setResults(r.races || []);
-      setQualifying(q.races || []);
-      setSchedule(sch.races || []);
-      setHasAnalyzed(true);
+      setSeasonData({
+        drivers: d.drivers || [],
+        standings: s.standings || [],
+        results: r.races || [],
+        qualifying: q.races || [],
+        schedule: sch.races || [],
+      });
     } catch (err) {
       setApiError(err.message || "Failed to load season data.");
-      setDrivers([]);
-      setStandings([]);
-      setResults([]);
-      setQualifying([]);
-      setSchedule([]);
-      setHasAnalyzed(false);
+      setSeasonData(null);
     }
     setIsLoading(false);
   };
 
-  // Auto-select first two drivers if none chosen ----------------------------
+  // Auto-select first two drivers if none chosen
   useEffect(() => {
-    if (driverCodeInputs.every((c) => !c) && drivers.length >= 2) {
-      const d1 = drivers[0].driverId;
-      const d2 = drivers[1].driverId;
+    if (seasonData && driverCodeInputs.every((c) => !c) && seasonData.drivers.length >= 2) {
+      const d1 = seasonData.drivers[0].driverId;
+      const d2 = seasonData.drivers[1].driverId;
       setDriverCodeInputs([d1, d2]);
       setSelectedDrivers([d1, d2]);
     }
-  }, [drivers, driverCodeInputs, selectedDrivers]);
+  }, [seasonData, driverCodeInputs]);
 
-  // Driver lookup by ID ---------------------------------------------------
+  // Driver lookup by ID
   const handleDriverCodeChange = (index, codeValue) => {
     const raw = codeValue || "";
     const value = raw.trim().toLowerCase();
@@ -136,40 +125,51 @@ function App() {
     nextInputs[index] = raw;
     setDriverCodeInputs(nextInputs);
 
+    if (!seasonData) return;
     const norm = (s) => (s || "").toLowerCase();
-    const match = drivers.find(
+    const match = seasonData.drivers.find(
       (d) => norm(d.driverId) === value || norm(d.driverCode) === value
     );
     const nextSelected = [...selectedDrivers];
     nextSelected[index] = match ? match.driverId : "";
     setSelectedDrivers(nextSelected);
   };
+  
+  // Chart data and options
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    layout: { padding: { top: 20, bottom: 20, left: 10, right: 10 } },
+    plugins: {
+      legend: { position: "top" },
+      title: {
+        display: true,
+        text: `${COMPARISON_METRICS[comparisonMetric]} – ${year}`,
+        font: { size: 18, weight: "bold" },
+      },
+    },
+    scales: {
+      y: {
+        beginAtZero: comparisonMetric === "points",
+        reverse: comparisonMetric !== "points",
+        min: comparisonMetric !== "points" ? 1 : 0,
+        max: comparisonMetric === "points" ? 26 : MAX_POSITION,
+        grace: '10%', // Adds padding to top/bottom of chart
+      },
+    },
+  };
 
-  // When drivers list loads or inputs change, resolve inputs to selected IDs
-  useEffect(() => {
-    if (!drivers.length) return;
-    const norm = (s) => (s || "").toLowerCase();
-    const resolved = driverCodeInputs.map((raw) => {
-      const value = norm((raw || "").trim());
-      const match = drivers.find(
-        (d) => norm(d.driverId) === value || norm(d.driverCode) === value
-      );
-      return match ? match.driverId : "";
-    });
-    // Only update if changed to avoid loops
-    if (
-      resolved[0] !== selectedDrivers[0] ||
-      resolved[1] !== selectedDrivers[1]
-    ) {
-      setSelectedDrivers(resolved);
-    }
-  }, [drivers, driverCodeInputs]);
+  const smallChartOptions = {
+    ...chartOptions,
+    scales: { y: { beginAtZero: true, grace: '10%' } },
+    plugins: { ...chartOptions.plugins, title: { display: false } },
+  };
 
-  // -------------------------------------------------------------------------
-  // Chart data
   const getComparisonLineData = () => {
-    if (!selectedDrivers[0] || !selectedDrivers[1] || !schedule.length)
+    if (!seasonData || !selectedDrivers[0] || !selectedDrivers[1])
       return { labels: [], datasets: [] };
+
+    const { schedule, drivers, qualifying, results } = seasonData;
 
     const nameFor = (id) => {
       const d = drivers.find((x) => x.driverId === id);
@@ -228,42 +228,15 @@ function App() {
     };
   };
 
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    layout: { padding: { top: 12 } },
-    plugins: {
-      legend: { position: "top" },
-      title: {
-        display: true,
-        text: `${COMPARISON_METRICS[comparisonMetric]} – ${year}`,
-        font: { size: 18, weight: "bold" },
-      },
-    },
-    scales: {
-      y: {
-        beginAtZero: comparisonMetric === "points",
-        reverse: comparisonMetric !== "points",
-        min: comparisonMetric !== "points" ? 1 : 0,
-        max: comparisonMetric === "points" ? 26 : MAX_POSITION,
-      },
-    },
-  };
-
-  const smallChartOptions = {
-    ...chartOptions,
-    scales: { y: { beginAtZero: true } },
-    plugins: { ...chartOptions.plugins, title: { display: false } },
-  };
-
   const renderChart = () => (
     <Line options={chartOptions} data={getComparisonLineData()} />
   );
 
-  // Overall cumulative points line chart -----------------------------------
   const getOverallPointsLineData = () => {
-    if (!selectedDrivers[0] || !selectedDrivers[1] || !schedule.length)
+    if (!seasonData || !selectedDrivers[0] || !selectedDrivers[1])
       return { labels: [], datasets: [] };
+    
+    const { schedule, results, drivers } = seasonData;
 
     const labels = schedule.map((r) => r.raceName || `Round ${r.round}`);
     const cumA = [];
@@ -309,9 +282,10 @@ function App() {
     };
   };
 
-  // Podiums bar chart (all drivers) ----------------------------------------
   const getPodiumsBarChart = () => {
-    if (!schedule.length || !results.length) return null;
+    if (!seasonData) return null;
+    const { schedule, results, drivers } = seasonData;
+
     const podiumCounts = new Map();
     for (const race of schedule) {
       const round = Number(race.round);
@@ -345,13 +319,14 @@ function App() {
                 data,
                 backgroundColor: "#10b98120",
                 borderColor: "#10b981",
+                barPercentage: 0.7,
               },
             ],
           }}
           options={{
             ...smallChartOptions,
             indexAxis: "y",
-            scales: { x: { beginAtZero: true, ticks: { precision: 0 } } },
+            scales: { x: { beginAtZero: true, ticks: { precision: 0 }, grace: '10%' } },
           }}
         />
       </div>
@@ -359,7 +334,8 @@ function App() {
   };
 
   const getStandingsPointsChart = () => {
-    if (!standings.length) return null;
+    if (!seasonData) return null;
+    const { standings } = seasonData;
     const labels = standings.map((s) =>
       `${s.givenName || ""} ${s.familyName || ""}`.trim()
     );
@@ -376,6 +352,7 @@ function App() {
                 data,
                 backgroundColor: "#11182720",
                 borderColor: "#111827",
+                barPercentage: 0.7,
               },
             ],
           }}
@@ -386,7 +363,8 @@ function App() {
   };
 
   const getStandingsWinsChart = () => {
-    if (!standings.length) return null;
+    if (!seasonData) return null;
+    const { standings } = seasonData;
     const labels = standings.map((s) =>
       `${s.givenName || ""} ${s.familyName || ""}`.trim()
     );
@@ -403,6 +381,7 @@ function App() {
                 data,
                 backgroundColor: "#2563eb20",
                 borderColor: "#2563eb",
+                barPercentage: 0.7,
               },
             ],
           }}
@@ -413,6 +392,8 @@ function App() {
   };
 
   const getDriverStats = (driverId) => {
+    if (!seasonData) return null;
+    const { drivers, standings } = seasonData;
     const driver = drivers.find((d) => d.driverId === driverId);
     const standing = standings.find((s) => s.driverId === driverId);
     return (
@@ -542,22 +523,20 @@ function App() {
             {activeTab === "comparison" && (
               <>
                 <div className="chart-container">
-                  {isLoading || !hasAnalyzed ? (
-                    <div className="loading-indicator">Loading…</div>
-                  ) : (
-                    renderChart()
-                  )}
+                  {isLoading && <div className="loading-indicator">Loading…</div>}
+                  {!isLoading && !seasonData && <div className="loading-indicator">Select a year and click Analyze.</div>}
+                  {!isLoading && seasonData && renderChart()}
                 </div>
                 <div className="chart-grid">
-                  {getStandingsPointsChart()}
-                  {getStandingsWinsChart()}
-                  {getPodiumsBarChart()}
+                  {seasonData && getStandingsPointsChart()}
+                  {seasonData && getStandingsWinsChart()}
+                  {seasonData && getPodiumsBarChart()}
                 </div>
                 <div
                   className="chart-container small"
                   style={{ marginTop: 16 }}
                 >
-                  {!isLoading && hasAnalyzed && (
+                  {seasonData && (
                     <Line
                       options={{
                         ...chartOptions,
@@ -568,7 +547,7 @@ function App() {
                             text: `Overall Points – ${year}`,
                           },
                         },
-                        scales: { y: { beginAtZero: true } },
+                        scales: { y: { beginAtZero: true, grace: '10%' } },
                       }}
                       data={getOverallPointsLineData()}
                     />
@@ -579,7 +558,7 @@ function App() {
 
             {activeTab === "statistics" && (
               <div className="statistics-grid">
-                {selectedDrivers.map((id) => getDriverStats(id))}
+                {selectedDrivers.map((id) => id && getDriverStats(id))}
               </div>
             )}
           </div>
