@@ -107,32 +107,44 @@ function App() {
     setIsLoading(false);
   };
 
-  // Auto-select first two drivers if none chosen
+  // Handle driver selection and auto-selection
   useEffect(() => {
-    if (seasonData && driverCodeInputs.every((c) => !c) && seasonData.drivers.length >= 2) {
-      const d1 = seasonData.drivers[0].driverId;
-      const d2 = seasonData.drivers[1].driverId;
-      setDriverCodeInputs([d1, d2]);
-      setSelectedDrivers([d1, d2]);
+    if (!seasonData) {
+      if (selectedDrivers[0] || selectedDrivers[1]) {
+        setSelectedDrivers(["", ""]);
+      }
+      return;
     }
-  }, [seasonData, driverCodeInputs]);
 
-  // Driver lookup by ID
-  const handleDriverCodeChange = (index, codeValue) => {
-    const raw = codeValue || "";
-    const value = raw.trim().toLowerCase();
-    const nextInputs = [...driverCodeInputs];
-    nextInputs[index] = raw;
-    setDriverCodeInputs(nextInputs);
-
-    if (!seasonData) return;
     const norm = (s) => (s || "").toLowerCase();
-    const match = seasonData.drivers.find(
-      (d) => norm(d.driverId) === value || norm(d.driverCode) === value
-    );
-    const nextSelected = [...selectedDrivers];
-    nextSelected[index] = match ? match.driverId : "";
-    setSelectedDrivers(nextSelected);
+    const resolved = driverCodeInputs.map((raw) => {
+      const value = norm((raw || "").trim());
+      const match = seasonData.drivers.find(
+        (d) => norm(d.driverId) === value || norm(d.driverCode) === value
+      );
+      return match ? match.driverId : "";
+    });
+
+    // Auto-select first two drivers if no drivers are selected from inputs
+    if (resolved.every(id => !id) && seasonData.drivers.length >= 2) {
+        resolved[0] = seasonData.drivers[0].driverId;
+        resolved[1] = seasonData.drivers[1].driverId;
+        // Update the input fields to reflect the auto-selection
+        if (resolved[0] !== driverCodeInputs[0] || resolved[1] !== driverCodeInputs[1]) {
+          setDriverCodeInputs([resolved[0], resolved[1]]);
+        }
+    }
+
+    if (resolved[0] !== selectedDrivers[0] || resolved[1] !== selectedDrivers[1]) {
+      setSelectedDrivers(resolved);
+    }
+  }, [seasonData, driverCodeInputs, selectedDrivers]);
+
+  // Handle manual input changes
+  const handleDriverCodeChange = (index, codeValue) => {
+    const nextInputs = [...driverCodeInputs];
+    nextInputs[index] = codeValue || "";
+    setDriverCodeInputs(nextInputs);
   };
   
   // Chart data and options
