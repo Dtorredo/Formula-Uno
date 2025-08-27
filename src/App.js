@@ -60,6 +60,15 @@ function App() {
     return () => clearTimeout(handler);
   }, [year]);
 
+  // When year changes, clear previously analyzed season until Analyze is clicked
+  useEffect(() => {
+    setHasAnalyzed(false);
+    setStandings([]);
+    setResults([]);
+    setQualifying([]);
+    setSchedule([]);
+  }, [debouncedYear]);
+
   // Fetch everything for the chosen season ---------------------------------
   const fetchDataForYear = async (season) => {
     setIsLoading(true);
@@ -216,6 +225,7 @@ function App() {
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
+    layout: { padding: { top: 12 } },
     plugins: {
       legend: { position: "top" },
       title: {
@@ -229,7 +239,7 @@ function App() {
         beginAtZero: comparisonMetric === "points",
         reverse: comparisonMetric !== "points",
         min: comparisonMetric !== "points" ? 1 : 0,
-        max: comparisonMetric === "points" ? 25 : MAX_POSITION,
+        max: comparisonMetric === "points" ? 26 : MAX_POSITION,
       },
     },
   };
@@ -243,6 +253,104 @@ function App() {
   const renderChart = () => (
     <Line options={chartOptions} data={getComparisonLineData()} />
   );
+
+  // Overall cumulative points line chart -----------------------------------
+  const getOverallPointsLineData = () => {
+    if (!selectedDrivers[0] || !selectedDrivers[1] || !schedule.length)
+      return { labels: [], datasets: [] };
+
+    const labels = schedule.map((r) => r.raceName || `Round ${r.round}`);
+    const cumA = [];
+    const cumB = [];
+    let totalA = 0;
+    let totalB = 0;
+    for (const race of schedule) {
+      const round = Number(race.round);
+      const rRound = results.filter((r) => Number(r.round) === round);
+      const ra = rRound.find((r) => r.driverId === selectedDrivers[0]);
+      const rb = rRound.find((r) => r.driverId === selectedDrivers[1]);
+      const posA = ra ? Number(ra.position) : 0;
+      const posB = rb ? Number(rb.position) : 0;
+      totalA += posA >= 1 && posA <= 10 ? F1_POINTS[posA - 1] : 0;
+      totalB += posB >= 1 && posB <= 10 ? F1_POINTS[posB - 1] : 0;
+      cumA.push(totalA);
+      cumB.push(totalB);
+    }
+    const nameFor = (id) => {
+      const d = drivers.find((x) => x.driverId === id);
+      return d ? `${d.givenName} ${d.familyName}` : id;
+    };
+    return {
+      labels,
+      datasets: [
+        {
+          label: `${nameFor(selectedDrivers[0])} – Overall Points`,
+          data: cumA,
+          borderColor: "#0ea5e9",
+          backgroundColor: "#0ea5e910",
+          tension: 0.2,
+          spanGaps: true,
+        },
+        {
+          label: `${nameFor(selectedDrivers[1])} – Overall Points`,
+          data: cumB,
+          borderColor: "#f59e0b",
+          backgroundColor: "#f59e0b10",
+          tension: 0.2,
+          spanGaps: true,
+        },
+      ],
+    };
+  };
+
+  // Podiums bar chart (all drivers) ----------------------------------------
+  const getPodiumsBarChart = () => {
+    if (!schedule.length || !results.length) return null;
+    const podiumCounts = new Map();
+    for (const race of schedule) {
+      const round = Number(race.round);
+      const rRound = results.filter((r) => Number(r.round) === round);
+      for (const res of rRound) {
+        const pos = Number(res.position);
+        if (pos >= 1 && pos <= 3) {
+          const id = res.driverId;
+          podiumCounts.set(id, (podiumCounts.get(id) || 0) + 1);
+        }
+      }
+    }
+    const nameFor = (id) => {
+      const d = drivers.find((x) => x.driverId === id);
+      return d ? `${d.givenName} ${d.familyName}` : id;
+    };
+    const sorted = Array.from(podiumCounts.entries()).sort(
+      (a, b) => b[1] - a[1]
+    );
+    const labels = sorted.map(([id]) => nameFor(id));
+    const data = sorted.map(([, count]) => count);
+    return (
+      <div className="chart-card">
+        <h3>Podiums – {year}</h3>
+        <Bar
+          data={{
+            labels,
+            datasets: [
+              {
+                label: "Podiums",
+                data,
+                backgroundColor: "#10b98120",
+                borderColor: "#10b981",
+              },
+            ],
+          }}
+          options={{
+            ...smallChartOptions,
+            indexAxis: "y",
+            scales: { x: { beginAtZero: true, ticks: { precision: 0 } } },
+          }}
+        />
+      </div>
+    );
+  };
 
   const getStandingsPointsChart = () => {
     if (!standings.length) return null;
@@ -437,6 +545,28 @@ function App() {
                 <div className="chart-grid">
                   {getStandingsPointsChart()}
                   {getStandingsWinsChart()}
+                  {getPodiumsBarChart()}
+                </div>
+                <div
+                  className="chart-container small"
+                  style={{ marginTop: 16 }}
+                >
+                  {!isLoading && hasAnalyzed && (
+                    <Line
+                      options={{
+                        ...chartOptions,
+                        plugins: {
+                          ...chartOptions.plugins,
+                          title: {
+                            display: true,
+                            text: `Overall Points – ${year}`,
+                          },
+                        },
+                        scales: { y: { beginAtZero: true } },
+                      }}
+                      data={getOverallPointsLineData()}
+                    />
+                  )}
                 </div>
               </>
             )}
