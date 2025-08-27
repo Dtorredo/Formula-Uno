@@ -15,6 +15,23 @@ import {
 } from "chart.js";
 import { Bar, Line } from "react-chartjs-2";
 
+// Configurable API base: set REACT_APP_API_BASE in production
+const API_BASE = process.env.REACT_APP_API_BASE || ""; 
+
+async function fetchJson(path, label) {
+  const res = await fetch(`${API_BASE}${path}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`API error ${label}: ${res.status} ${text.slice(0, 120)}`);
+  }
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`API ${label} did not return JSON: ${text.slice(0, 120)}`);
+  }
+  return res.json();
+}
+
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -74,23 +91,12 @@ function App() {
     setIsLoading(true);
     setApiError("");
     try {
-      const driversRes = await fetch(`/api/drivers/${season}`);
-      const standingsRes = await fetch(`/api/standings/${season}`);
-      const resultsRes = await fetch(`/api/results/${season}`);
-      const qualiRes = await fetch(`/api/qualifying/${season}`);
-      const scheduleRes = await fetch(`/api/schedule/${season}`);
-
-      const throwIfBad = (res, label) => {
-        if (!res.ok) throw new Error(`API error ${label}: ${res.status}`);
-        return res.json();
-      };
-
       const [d, s, r, q, sch] = await Promise.all([
-        throwIfBad(driversRes, "drivers"),
-        throwIfBad(standingsRes, "standings"),
-        throwIfBad(resultsRes, "results"),
-        throwIfBad(qualiRes, "qualifying"),
-        throwIfBad(scheduleRes, "schedule"),
+        fetchJson(`/api/drivers/${season}`, "drivers"),
+        fetchJson(`/api/standings/${season}`, "standings"),
+        fetchJson(`/api/results/${season}`, "results"),
+        fetchJson(`/api/qualifying/${season}`, "qualifying"),
+        fetchJson(`/api/schedule/${season}`, "schedule"),
       ]);
 
       const driverList = d.drivers || [];
