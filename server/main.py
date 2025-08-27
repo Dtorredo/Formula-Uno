@@ -243,4 +243,4 @@ async def get_session_info(
 
 # --- Static Files Mount -----------------------------------------------------
 # This must be the last route, as it's a catch-all for serving the frontend
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+#app.mount("/", StaticFiles(directory="static", html=True), name="static")
