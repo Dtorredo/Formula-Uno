@@ -52,6 +52,7 @@ function App() {
   const [schedule, setSchedule] = useState([]);
   const [driverCodeInputs, setDriverCodeInputs] = useState(["", ""]);
   const [comparisonMetric, setComparisonMetric] = useState("points");
+  const [hasAnalyzed, setHasAnalyzed] = useState(false);
 
   // Debounce year input ----------------------------------------------------
   useEffect(() => {
@@ -60,73 +61,94 @@ function App() {
   }, [year]);
 
   // Fetch everything for the chosen season ---------------------------------
+  const fetchDataForYear = async (season) => {
+    setIsLoading(true);
+    setApiError("");
+    try {
+      const driversRes = await fetch(`/api/drivers/${season}`);
+      const standingsRes = await fetch(`/api/standings/${season}`);
+      const resultsRes = await fetch(`/api/results/${season}`);
+      const qualiRes = await fetch(`/api/qualifying/${season}`);
+      const scheduleRes = await fetch(`/api/schedule/${season}`);
+
+      const throwIfBad = (res, label) => {
+        if (!res.ok) throw new Error(`API error ${label}: ${res.status}`);
+        return res.json();
+      };
+
+      const [d, s, r, q, sch] = await Promise.all([
+        throwIfBad(driversRes, "drivers"),
+        throwIfBad(standingsRes, "standings"),
+        throwIfBad(resultsRes, "results"),
+        throwIfBad(qualiRes, "qualifying"),
+        throwIfBad(scheduleRes, "schedule"),
+      ]);
+
+      const driverList = d.drivers || [];
+      setDrivers(driverList);
+      setStandings(s.standings || []);
+      setResults(r.races || []);
+      setQualifying(q.races || []);
+      setSchedule(sch.races || []);
+      setHasAnalyzed(true);
+    } catch (err) {
+      setApiError(err.message || "Failed to load season data.");
+      setDrivers([]);
+      setStandings([]);
+      setResults([]);
+      setQualifying([]);
+      setSchedule([]);
+      setHasAnalyzed(false);
+    }
+    setIsLoading(false);
+  };
+
+  // Auto-select first two drivers if none chosen ----------------------------
   useEffect(() => {
-    const fetchDataForYear = async (season) => {
-      setIsLoading(true);
-      setApiError("");
-      try {
-        const driversRes = await fetch(`/api/drivers/${season}`);
-        const standingsRes = await fetch(`/api/standings/${season}`);
-        const resultsRes = await fetch(`/api/results/${season}`);
-        const qualiRes = await fetch(`/api/qualifying/${season}`);
-        const scheduleRes = await fetch(`/api/schedule/${season}`);
-
-        const throwIfBad = (res, label) => {
-          if (!res.ok) throw new Error(`API error ${label}: ${res.status}`);
-          return res.json();
-        };
-
-        const [d, s, r, q, sch] = await Promise.all([
-          throwIfBad(driversRes, "drivers"),
-          throwIfBad(standingsRes, "standings"),
-          throwIfBad(resultsRes, "results"),
-          throwIfBad(qualiRes, "qualifying"),
-          throwIfBad(scheduleRes, "schedule"),
-        ]);
-
-        const driverList = d.drivers || [];
-        setDrivers(driverList);
-        setStandings(s.standings || []);
-        setResults(r.races || []);
-        setQualifying(q.races || []);
-        setSchedule(sch.races || []);
-
-        // Auto-select first two drivers if none chosen
-        if (driverCodeInputs.every((c) => !c) && driverList.length >= 2) {
-          const d1 = driverList[0].driverId;
-          const d2 = driverList[1].driverId;
-          setDriverCodeInputs([d1, d2]);
-          setSelectedDrivers([d1, d2]);
-        }
-      } catch (err) {
-        setApiError(err.message || "Failed to load season data.");
-        setDrivers([]);
-        setStandings([]);
-        setResults([]);
-        setQualifying([]);
-        setSchedule([]);
-      }
-      setIsLoading(false);
-    };
-
-    if (debouncedYear && debouncedYear.length === 4)
-      fetchDataForYear(debouncedYear);
-  }, [debouncedYear]);
+    if (driverCodeInputs.every((c) => !c) && drivers.length >= 2) {
+      const d1 = drivers[0].driverId;
+      const d2 = drivers[1].driverId;
+      setDriverCodeInputs([d1, d2]);
+      setSelectedDrivers([d1, d2]);
+    }
+  }, [drivers, driverCodeInputs, selectedDrivers]);
 
   // Driver lookup by ID ---------------------------------------------------
   const handleDriverCodeChange = (index, codeValue) => {
-    const value = (codeValue || "").toLowerCase();
+    const raw = codeValue || "";
+    const value = raw.trim().toLowerCase();
     const nextInputs = [...driverCodeInputs];
-    nextInputs[index] = value;
+    nextInputs[index] = raw;
     setDriverCodeInputs(nextInputs);
 
+    const norm = (s) => (s || "").toLowerCase();
     const match = drivers.find(
-      (d) => (d.driverId || "").toLowerCase() === value
+      (d) => norm(d.driverId) === value || norm(d.driverCode) === value
     );
     const nextSelected = [...selectedDrivers];
     nextSelected[index] = match ? match.driverId : "";
     setSelectedDrivers(nextSelected);
   };
+
+  // When drivers list loads or inputs change, resolve inputs to selected IDs
+  useEffect(() => {
+    if (!drivers.length) return;
+    const norm = (s) => (s || "").toLowerCase();
+    const resolved = driverCodeInputs.map((raw) => {
+      const value = norm((raw || "").trim());
+      const match = drivers.find(
+        (d) => norm(d.driverId) === value || norm(d.driverCode) === value
+      );
+      return match ? match.driverId : "";
+    });
+    // Only update if changed to avoid loops
+    if (
+      resolved[0] !== selectedDrivers[0] ||
+      resolved[1] !== selectedDrivers[1]
+    ) {
+      setSelectedDrivers(resolved);
+    }
+  }, [drivers, driverCodeInputs]);
 
   // -------------------------------------------------------------------------
   // Chart data
@@ -144,24 +166,17 @@ function App() {
     const dataB = [];
 
     for (const race of schedule) {
+      const round = Number(race.round);
       let resA, resB;
 
       if (comparisonMetric === "quali") {
-        const qRace = qualifying.find((q) => q.round === race.round);
-        resA = (qRace?.QualifyingResults || []).find(
-          (r) => r.Driver?.driverId === selectedDrivers[0]
-        );
-        resB = (qRace?.QualifyingResults || []).find(
-          (r) => r.Driver?.driverId === selectedDrivers[1]
-        );
+        const qRound = qualifying.filter((q) => Number(q.round) === round);
+        resA = qRound.find((r) => r.driverId === selectedDrivers[0]);
+        resB = qRound.find((r) => r.driverId === selectedDrivers[1]);
       } else {
-        const rRace = results.find((r) => r.round === race.round);
-        resA = (rRace?.Results || []).find(
-          (r) => r.Driver?.driverId === selectedDrivers[0]
-        );
-        resB = (rRace?.Results || []).find(
-          (r) => r.Driver?.driverId === selectedDrivers[1]
-        );
+        const rRound = results.filter((r) => Number(r.round) === round);
+        resA = rRound.find((r) => r.driverId === selectedDrivers[0]);
+        resB = rRound.find((r) => r.driverId === selectedDrivers[1]);
       }
 
       if (comparisonMetric === "points") {
@@ -213,8 +228,8 @@ function App() {
       y: {
         beginAtZero: comparisonMetric === "points",
         reverse: comparisonMetric !== "points",
-        min: comparisonMetric !== "points" ? 1 : undefined,
-        max: comparisonMetric !== "points" ? MAX_POSITION : undefined,
+        min: comparisonMetric !== "points" ? 1 : 0,
+        max: comparisonMetric === "points" ? 25 : MAX_POSITION,
       },
     },
   };
@@ -231,8 +246,8 @@ function App() {
 
   const getStandingsPointsChart = () => {
     if (!standings.length) return null;
-    const labels = standings.map(
-      (s) => `${s.Driver.givenName} ${s.Driver.familyName}`
+    const labels = standings.map((s) =>
+      `${s.givenName || ""} ${s.familyName || ""}`.trim()
     );
     const data = standings.map((s) => Number(s.points));
     return (
@@ -258,8 +273,8 @@ function App() {
 
   const getStandingsWinsChart = () => {
     if (!standings.length) return null;
-    const labels = standings.map(
-      (s) => `${s.Driver.givenName} ${s.Driver.familyName}`
+    const labels = standings.map((s) =>
+      `${s.givenName || ""} ${s.familyName || ""}`.trim()
     );
     const data = standings.map((s) => Number(s.wins));
     return (
@@ -285,14 +300,16 @@ function App() {
 
   const getDriverStats = (driverId) => {
     const driver = drivers.find((d) => d.driverId === driverId);
-    const standing = standings.find((s) => s.Driver.driverId === driverId);
+    const standing = standings.find((s) => s.driverId === driverId);
     return (
       <div key={driverId} className="driver-stats">
         <div className="driver-header">
           {driver?.permanentNumber && (
             <span className="driver-number">#{driver.permanentNumber}</span>
           )}
-          <h3>{driver ? `${driver.givenName} ${driver.familyName}` : driverId}</h3>
+          <h3>
+            {driver ? `${driver.givenName} ${driver.familyName}` : driverId}
+          </h3>
           <p className="driver-team">{driver?.nationality}</p>
         </div>
         <div className="stats-grid">
@@ -369,19 +386,38 @@ function App() {
                 ))}
               </select>
             </div>
+            <div className="form-group">
+              <button
+                type="button"
+                onClick={() =>
+                  debouncedYear &&
+                  debouncedYear.length === 4 &&
+                  fetchDataForYear(debouncedYear)
+                }
+                disabled={
+                  !debouncedYear || debouncedYear.length !== 4 || isLoading
+                }
+              >
+                {isLoading ? "Analyzing…" : "Analyze Season"}
+              </button>
+            </div>
           </form>
         </div>
 
         <div className="right-panel">
           <div className="tab-navigation">
             <button
-              className={`tab-button ${activeTab === "comparison" ? "active" : ""}`}
+              className={`tab-button ${
+                activeTab === "comparison" ? "active" : ""
+              }`}
               onClick={() => setActiveTab("comparison")}
             >
               Performance Comparison
             </button>
             <button
-              className={`tab-button ${activeTab === "statistics" ? "active" : ""}`}
+              className={`tab-button ${
+                activeTab === "statistics" ? "active" : ""
+              }`}
               onClick={() => setActiveTab("statistics")}
             >
               Driver Statistics
@@ -392,7 +428,7 @@ function App() {
             {activeTab === "comparison" && (
               <>
                 <div className="chart-container">
-                  {isLoading ? (
+                  {isLoading || !hasAnalyzed ? (
                     <div className="loading-indicator">Loading…</div>
                   ) : (
                     renderChart()
