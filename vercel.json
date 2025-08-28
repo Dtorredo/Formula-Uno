@@ -5,7 +5,13 @@
       "src": "api/index.py",
       "use": "@vercel/python",
       "config": {
-        "excludeFiles": "{.fastf1-cache/**, .github/**, .venv/**, app/**}"
+        "excludeFiles": [
+          ".fastf1-cache/**",
+          ".github/**",
+          ".venv/**",
+          "app/**",
+          "node_modules/**"
+        ]
       }
     },
     {
