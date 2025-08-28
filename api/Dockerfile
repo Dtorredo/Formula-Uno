@@ -13,8 +13,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY ./api /app/api
+COPY . /app
 
 # Expose port and run app
 EXPOSE 8000
-CMD ["uvicorn", "api.index:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "index:app", "--host", "0.0.0.0", "--port", "8000"]
