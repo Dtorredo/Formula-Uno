@@ -2,17 +2,8 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/index.py",
-      "use": "@vercel/python",
-      "config": {
-        "excludeFiles": [
-          ".fastf1-cache/**",
-          ".github/**",
-          ".venv/**",
-          "app/**",
-          "node_modules/**"
-        ]
-      }
+      "src": "Dockerfile",
+      "use": "@vercel/docker"
     },
     {
       "src": "app/package.json",
@@ -23,14 +14,14 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "api/index.py"
+      "dest": "/api/$1"
     },
     {
       "handle": "filesystem"
     },
     {
       "src": "/(.*)",
-      "dest": "index.html"
+      "dest": "/index.html"
     }
   ]
 }
