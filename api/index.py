@@ -5,25 +5,45 @@ import numpy as np
 from fastapi import FastAPI, HTTPException, Path
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
-from fastapi.staticfiles import StaticFiles
 import os
 import json
-from datetime import datetime
+import redis
 
-# Initialize FastF1 cache (configurable via env FASTF1_CACHE_DIR)
-CACHE_DIR = os.getenv("FASTF1_CACHE_DIR", os.path.join(os.getcwd(), ".fastf1-cache"))
-os.makedirs(CACHE_DIR, exist_ok=True)
+# --- Cache Configuration ----------------------------------------------------
+# This is the new cache setup for Vercel.
+# It uses Upstash Redis for persistent caching in a serverless environment.
+#
+# IMPORTANT: You must create a free Redis database at https://upstash.com/
+# and set the following environment variables in your Vercel project settings:
+#
+# UPSTASH_REDIS_REST_URL: The REST URL of your Upstash database.
+# UPSTASH_REDIS_REST_TOKEN: The access token for your Upstash database.
+#
+# The `fastf1.Cache.enable_cache` function will automatically detect these
+# environment variables and configure the Redis cache.
+
 try:
-    fastf1.Cache.enable_cache(CACHE_DIR)
-except Exception:
-    # If cache init fails, continue without cache; FastF1 can still fetch live
+    # The 'redis' extra for fastf1 is needed: pip install "fastf1[redis]"
+    # This will automatically use UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN
+    # if they are set in the environment.
+    fastf1.Cache.enable_cache()
+    # The cache function does not raise an error if connection fails,
+    # so we add a manual check to know if the cache is actually working.
+    if fastf1.Cache.instance and fastf1.Cache.instance.is_initialized:
+         print("FastF1 cache enabled successfully.")
+    else:
+         print("FastF1 cache could not be initialized. Check Redis connection.")
+except Exception as e:
+    # If cache init fails, log the error but continue without cache.
+    # The app will still work but will be slower.
+    print(f"An error occurred during cache setup: {e}")
     pass
 
 # --- Setup ------------------------------------------------------------------
-app = FastAPI(title="Formula-Uno API", version="1.1.0")
+app = FastAPI(title="Formula-Uno API", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # Allow all origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -55,10 +75,8 @@ def to_records(data):
     try:
         if isinstance(data, pd.DataFrame):
             return json.loads(data.to_json(orient="records", date_format="iso"))
-        # ErgastSimpleResponse acts like a DataFrame
         if hasattr(data, "to_json"):
             return json.loads(data.to_json(orient="records", date_format="iso"))
-        # ErgastMultiResponse has .content which is a list of DataFrames
         if hasattr(data, "content"):
             content = getattr(data, "content")
             if isinstance(content, list):
@@ -70,7 +88,6 @@ def to_records(data):
                             df_item["round"] = idx
                         frames.append(df_item)
                     elif hasattr(item, "to_json"):
-                        # ErgastResultFrame behaves like DataFrame
                         tmp = pd.DataFrame(item)
                         if "round" not in tmp.columns:
                             tmp["round"] = idx
@@ -78,16 +95,17 @@ def to_records(data):
                 if frames:
                     df = pd.concat(frames, ignore_index=True)
                     return json.loads(df.to_json(orient="records", date_format="iso"))
-            # Fallback to dumping the content directly
             return json.loads(json.dumps(content, default=numpy_safe_converter))
-        # Fallback: already native
         return data
     except Exception:
-        # Last resort: try numpy-safe json dumps and loads
         return json.loads(json.dumps(data, default=numpy_safe_converter))
 
 # --- API Endpoints ----------------------------------------------------------
-@app.get("/api/schedule/{season}")
+# Note: All endpoints are prefixed with /api/ by Vercel's routing.
+# The paths defined here are relative to that.
+# e.g., @app.get("/schedule/{season}") becomes /api/schedule/{season}
+
+@app.get("/schedule/{season}")
 async def get_schedule(season: int = Path(..., ge=1950, description="The year of the season")):
     try:
         schedule = fastf1.get_event_schedule(season, include_testing=False)
@@ -100,7 +118,7 @@ async def get_schedule(season: int = Path(..., ge=1950, description="The year of
             return create_json_response({"races": []})
         raise HTTPException(status_code=500, detail=f"Error getting schedule: {e}")
 
-@app.get("/api/drivers/{season}")
+@app.get("/drivers/{season}")
 async def get_drivers(season: int = Path(..., ge=1950)):
     try:
         ergast = fastf1.ergast.Ergast()
@@ -108,12 +126,11 @@ async def get_drivers(season: int = Path(..., ge=1950)):
         drivers = to_records(drivers_resp)
         return create_json_response({"drivers": drivers})
     except Exception as e:
-        # Return empty list for seasons with no data
         if "No data" in str(e) or "404" in str(e):
             return create_json_response({"drivers": []})
         raise HTTPException(status_code=500, detail=f"Error getting drivers: {e}")
 
-@app.get("/api/standings/{season}")
+@app.get("/standings/{season}")
 async def get_standings(season: int = Path(..., ge=1950)):
     try:
         ergast = fastf1.ergast.Ergast()
@@ -125,11 +142,10 @@ async def get_standings(season: int = Path(..., ge=1950)):
             return create_json_response({"standings": []})
         raise HTTPException(status_code=500, detail=f"Error getting standings: {e}")
 
-@app.get("/api/results/{season}")
+@app.get("/results/{season}")
 async def get_results(season: int = Path(..., ge=1950)):
     try:
         ergast = fastf1.ergast.Ergast()
-        # Build results per round to attach correct round numbers
         schedule_df = fastf1.ergast.Ergast().get_race_schedule(season=season)
         try:
             rounds = list(schedule_df["round"].astype(int).tolist())
@@ -140,7 +156,6 @@ async def get_results(season: int = Path(..., ge=1950)):
         for rnd in rounds:
             try:
                 resp = ergast.get_race_results(season=season, round=rnd)
-                # resp may be Simple or Multi; normalize to list of DataFrames
                 frames = []
                 if hasattr(resp, "content") and isinstance(resp.content, list):
                     frames = resp.content
@@ -164,11 +179,10 @@ async def get_results(season: int = Path(..., ge=1950)):
             return create_json_response({"races": []})
         raise HTTPException(status_code=500, detail=f"Error getting results: {e}")
 
-@app.get("/api/qualifying/{season}")
+@app.get("/qualifying/{season}")
 async def get_qualifying_results(season: int = Path(..., ge=1950)):
     try:
         ergast = fastf1.ergast.Ergast()
-        # Build qualifying per round to attach correct round numbers
         schedule_df = fastf1.ergast.Ergast().get_race_schedule(season=season)
         try:
             rounds = list(schedule_df["round"].astype(int).tolist())
@@ -202,12 +216,12 @@ async def get_qualifying_results(season: int = Path(..., ge=1950)):
             return create_json_response({"races": []})
         raise HTTPException(status_code=500, detail=f"Error getting qualifying results: {e}")
 
-@app.get("/api/status")
+@app.get("/status")
 async def status():
-    return {"ok": True}
+    return {"ok": True, "cache_enabled": fastf1.Cache.instance.is_initialized if fastf1.Cache.instance else False}
 
 
-@app.get("/api/session/{season}/{event}/{kind}")
+@app.get("/session/{season}/{event}/{kind}")
 async def get_session_info(
     season: int = Path(..., ge=1950),
     event: str = Path(..., description="Event name, e.g. Monza"),
@@ -216,7 +230,6 @@ async def get_session_info(
     """Load a FastF1 session and return minimal info to verify FastF1 works."""
     try:
         session = fastf1.get_session(season, event, kind)
-        # Keep it light by default; toggle via query later if needed
         session.load(telemetry=False, laps=True, weather=False)
 
         fastest = None
@@ -240,7 +253,3 @@ async def get_session_info(
         return create_json_response(info)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading session: {e}")
-
-# --- Static Files Mount -----------------------------------------------------
-# This must be the last route, as it's a catch-all for serving the frontend
-#app.mount("/", StaticFiles(directory="static", html=True), name="static")
