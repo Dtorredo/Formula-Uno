@@ -2,7 +2,7 @@ import fastf1
 import fastf1.ergast
 import pandas as pd
 import numpy as np
-from fastapi import FastAPI, HTTPException, Path
+from fastapi import FastAPI, HTTPException, Path, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 import os
@@ -41,6 +41,8 @@ except Exception as e:
 
 # --- Setup ------------------------------------------------------------------
 app = FastAPI(title="Formula-Uno API", version="2.0.0")
+router = APIRouter(prefix="/api")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], # Allow all origins
@@ -105,7 +107,7 @@ def to_records(data):
 # The paths defined here are relative to that.
 # e.g., @app.get("/schedule/{season}") becomes /api/schedule/{season}
 
-@app.get("/schedule/{season}")
+@router.get("/schedule/{season}")
 async def get_schedule(season: int = Path(..., ge=1950, description="The year of the season")):
     try:
         schedule = fastf1.get_event_schedule(season, include_testing=False)
@@ -118,7 +120,7 @@ async def get_schedule(season: int = Path(..., ge=1950, description="The year of
             return create_json_response({"races": []})
         raise HTTPException(status_code=500, detail=f"Error getting schedule: {e}")
 
-@app.get("/drivers/{season}")
+@router.get("/drivers/{season}")
 async def get_drivers(season: int = Path(..., ge=1950)):
     try:
         ergast = fastf1.ergast.Ergast()
@@ -130,7 +132,7 @@ async def get_drivers(season: int = Path(..., ge=1950)):
             return create_json_response({"drivers": []})
         raise HTTPException(status_code=500, detail=f"Error getting drivers: {e}")
 
-@app.get("/standings/{season}")
+@router.get("/standings/{season}")
 async def get_standings(season: int = Path(..., ge=1950)):
     try:
         ergast = fastf1.ergast.Ergast()
@@ -142,7 +144,7 @@ async def get_standings(season: int = Path(..., ge=1950)):
             return create_json_response({"standings": []})
         raise HTTPException(status_code=500, detail=f"Error getting standings: {e}")
 
-@app.get("/results/{season}")
+@router.get("/results/{season}")
 async def get_results(season: int = Path(..., ge=1950)):
     try:
         ergast = fastf1.ergast.Ergast()
@@ -179,7 +181,7 @@ async def get_results(season: int = Path(..., ge=1950)):
             return create_json_response({"races": []})
         raise HTTPException(status_code=500, detail=f"Error getting results: {e}")
 
-@app.get("/qualifying/{season}")
+@router.get("/qualifying/{season}")
 async def get_qualifying_results(season: int = Path(..., ge=1950)):
     try:
         ergast = fastf1.ergast.Ergast()
@@ -216,12 +218,12 @@ async def get_qualifying_results(season: int = Path(..., ge=1950)):
             return create_json_response({"races": []})
         raise HTTPException(status_code=500, detail=f"Error getting qualifying results: {e}")
 
-@app.get("/status")
+@router.get("/status")
 async def status():
     return {"ok": True, "cache_enabled": fastf1.Cache.instance.is_initialized if fastf1.Cache.instance else False}
 
 
-@app.get("/session/{season}/{event}/{kind}")
+@router.get("/session/{season}/{event}/{kind}")
 async def get_session_info(
     season: int = Path(..., ge=1950),
     event: str = Path(..., description="Event name, e.g. Monza"),
@@ -253,3 +255,5 @@ async def get_session_info(
         return create_json_response(info)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading session: {e}")
+
+app.include_router(router)
