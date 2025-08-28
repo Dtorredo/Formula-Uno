@@ -1,14 +1,12 @@
 {
   "version": 2,
-  "functions": {
-    "api/index.py": {
-      "excludeFiles": "{.fastf1-cache/**, .github/**, .venv/**, app/**}"
-    }
-  },
   "builds": [
     {
       "src": "api/index.py",
-      "use": "@vercel/python"
+      "use": "@vercel/python",
+      "config": {
+        "excludeFiles": "{.fastf1-cache/**, .github/**, .venv/**, app/**}"
+      }
     },
     {
       "src": "app/package.json",
