@@ -1,5 +1,10 @@
 {
   "version": 2,
+  "functions": {
+    "api/index.py": {
+      "excludeFiles": "{.fastf1-cache/**, .github/**, .venv/**, app/**}"
+    }
+  },
   "builds": [
     {
       "src": "api/index.py",
